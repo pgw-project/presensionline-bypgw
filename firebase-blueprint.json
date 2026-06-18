@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "Sekolah": {
+      "title": "Sekolah",
+      "description": "Informasi entitas sekolah terdaftar dalam aplikasi multi-tenant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID Kode Sekolah Unik" },
+        "nama": { "type": "string", "description": "Nama Lengkap Sekolah" },
+        "alamat": { "type": "string", "description": "Alamat Sekolah" },
+        "createdAt": { "type": "string", "description": "ISO String tanggal rilis pendaftaran" }
+      },
+      "required": ["id", "nama", "createdAt"]
+    },
+    "Siswa": {
+      "title": "Siswa",
+      "description": "Informasi data murid (siswa) terdaftar.",
+      "type": "object",
+      "properties": {
+        "nis": { "type": "string", "description": "Nomor Induk Siswa" },
+        "nama": { "type": "string", "description": "Nama Lengkap Siswa" },
+        "kelas": { "type": "string", "description": "Kelas Terdaftar" },
+        "password": { "type": "string", "description": "Password Akun Siswa" },
+        "status": { "type": "string", "enum": ["Aktif", "Nonaktif"], "description": "Status Aktivitas Akun" },
+        "foto": { "type": "string", "description": "Foto Profil Siswa Base64 atau URL" }
+      },
+      "required": ["nis", "nama", "kelas", "status"]
+    },
+    "Guru": {
+      "title": "Guru",
+      "description": "Informasi data guru / staf pengajar.",
+      "type": "object",
+      "properties": {
+        "nip": { "type": "string", "description": "Nomor Induk Pegawai atau ID Guru" },
+        "nama": { "type": "string", "description": "Nama Lengkap Guru" },
+        "jabatan": { "type": "string", "description": "Jabatan atau Deskripsi Tugas" },
+        "password": { "type": "string", "description": "Password Akun Guru" },
+        "kelasDiajar": { "type": "array", "description": "Daftar kelas yang diajar oleh guru" },
+        "foto": { "type": "string", "description": "Foto Profil Guru Base64 atau URL" }
+      },
+      "required": ["nip", "nama", "jabatan"]
+    },
+    "Kelas": {
+      "title": "Kelas",
+      "description": "Informasi kelas-kelas yang aktif di sekolah.",
+      "type": "object",
+      "properties": {
+        "namaKelas": { "type": "string", "description": "Nama kelas unik" },
+        "waliKelas": { "type": "string", "description": "Nama Wali Kelas" }
+      },
+      "required": ["namaKelas", "waliKelas"]
+    },
+    "AbsenLog": {
+      "title": "AbsenLog",
+      "description": "Catatan log presensi kehadiran harian siswa.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID Unik Catatan Log" },
+        "timestamp": { "type": "string", "description": "Timestamp ISO waktu presensi" },
+        "tanggal": { "type": "string", "description": "Tanggal YYYY-MM-DD" },
+        "bulan": { "type": "string", "description": "Bulan presensi (format MMMM YYYY)" },
+        "nis": { "type": "string", "description": "NIS Siswa" },
+        "nama": { "type": "string", "description": "Nama Siswa" },
+        "kelas": { "type": "string", "description": "Kelas Siswa saat absen" },
+        "status": { "type": "string", "enum": ["Hadir (QR)", "Hadir (Manual)", "Sakit", "Izin", "Alfa"], "description": "Status kehadiran" },
+        "guruNip": { "type": "string", "description": "NIP Guru yang memproses" },
+        "guruNama": { "type": "string", "description": "Nama Guru yang memproses" },
+        "mataPelajaran": { "type": "string", "description": "Nama mata pelajaran aktif" }
+      },
+      "required": ["id", "timestamp", "tanggal", "bulan", "nis", "nama", "kelas", "status"]
+    },
+    "SystemHoliday": {
+      "title": "SystemHoliday",
+      "description": "Informasi hari libur dan tanggal merah yang diatur oleh admin server.",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "description": "Tanggal libur format YYYY-MM-DD" },
+        "keterangan": { "type": "string", "description": "Keterangan alasan libur" }
+      },
+      "required": ["date", "keterangan"]
+    }
+  },
+  "firestore": {
+    "/holidays/{date}": {
+      "schema": "SystemHoliday",
+      "description": "Daftar tanggal merah dan hari libur nasional/server-wide."
+    },
+    "/sekolah/{sekolahId}": {
+      "schema": "Sekolah",
+      "description": "Penyimpanan daftar sekolah terdaftar secara global."
+    },
+    "/schools/{schoolId}/siswa/{nis}": {
+      "schema": "Siswa",
+      "description": "Penyimpanan data siswa milik sekolah tertentu."
+    },
+    "/schools/{schoolId}/guru/{nip}": {
+      "schema": "Guru",
+      "description": "Penyimpanan data guru milik sekolah tertentu."
+    },
+    "/schools/{schoolId}/kelas/{namaKelas}": {
+      "schema": "Kelas",
+      "description": "Penyimpanan data kelas milik sekolah tertentu."
+    },
+    "/schools/{schoolId}/absensi/{absenId}": {
+      "schema": "AbsenLog",
+      "description": "Penyimpanan database riwayat absensi log murid milik sekolah tertentu."
+    }
+  }
+}

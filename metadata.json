@@ -1,0 +1,10 @@
+{
+  "name": "Sistem QR Absensi Murid",
+  "description": "Sistem absensi murid berbasis QR Code dengan manajemen data siswa, laporan, perekaman kehadiran realtime, dan rekap bulanan.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

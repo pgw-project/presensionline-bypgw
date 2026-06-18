@@ -1,0 +1,203 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;750&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  body, html {
+    background: white !important;
+    background-color: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Force background colors and text colors to remain exactly as designed when printing to PDF/paper */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* PREMIUM DARK MODE ROOT OVERRIDES - PERFECT FOR BOTH DESKTOP AND HP VIEWS */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body, 
+.dark #root-web-layout {
+  background-color: #090d16 !important; /* Elegant cosmic slate-950 */
+  color: #f1f5f9 !important; /* slate-100 */
+}
+
+/* Cards & Container elements */
+.dark .bg-white {
+  background-color: #111827 !important; /* slate-900 */
+  color: #f8fafc !important; /* slate-50 */
+  border-color: #1f2937 !important; /* slate-800 */
+}
+
+.dark div[id^="attendance-log-"],
+.dark div[id="stats-counter-banner"] > div,
+.dark div[id="laporan-harian-filters"],
+.dark div[id="rekap-bulanan-filters"] {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+}
+
+/* Form controls & Inputs styling */
+.dark input, 
+.dark select, 
+.dark textarea {
+  background-color: #030712 !important; /* Deep dark background */
+  border-color: #374151 !important; /* slate-700 */
+  color: #f8fafc !important;
+}
+
+.dark input::placeholder {
+  color: #6b7280 !important; /* gray-500 */
+}
+
+.dark input:focus,
+.dark select:focus {
+  border-color: #10b981 !important; /* emerald finish */
+  outline: none;
+}
+
+/* Tabular rows, lists & dividers */
+.dark .bg-slate-50,
+.dark .bg-slate-50\/50,
+.dark .bg-slate-50\/30 {
+  background-color: #1f2937 !important; /* slate-800 backdrop */
+  color: #e5e7eb !important;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-150 {
+  border-color: #1f2937 !important;
+}
+
+.dark .divide-slate-100 > div {
+  border-color: #1f2937 !important;
+}
+
+/* Headers & text titles */
+.dark h1, 
+.dark h2, 
+.dark h3, 
+.dark h4, 
+.dark h5, 
+.dark h6 {
+  color: #ffffff !important;
+}
+
+.dark p,
+.dark div.text-slate-500,
+.dark div.text-slate-400 {
+  color: #9ca3af !important; /* gray-400 */
+}
+
+.dark .text-slate-900,
+.dark .text-slate-850,
+.dark .text-slate-800,
+.dark .text-slate-750,
+.dark .text-slate-700 {
+  color: #f3f4f6 !important; /* slate-100 */
+}
+
+.dark .text-slate-500,
+.dark .text-slate-605 {
+  color: #9ca3af !important;
+}
+
+/* Status banners and pills */
+.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  color: #34d399 !important;
+  border-color: rgba(16, 185, 129, 0.25) !important;
+}
+
+.dark .bg-indigo-50 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+  color: #818cf8 !important;
+  border-color: rgba(99, 102, 241, 0.25) !important;
+}
+
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  color: #fbbf24 !important;
+  border-color: rgba(245, 158, 11, 0.25) !important;
+}
+
+.dark .bg-rose-50 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  color: #f87171 !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+
+.dark .bg-teal-50 {
+  background-color: rgba(20, 184, 166, 0.15) !important;
+  color: #2dd4bf !important;
+  border-color: rgba(20, 184, 166, 0.25) !important;
+}
+
+.dark .text-indigo-700,
+.dark .text-indigo-800,
+.dark .text-indigo-600 {
+  color: #818cf8 !important;
+}
+
+.dark .text-emerald-700,
+.dark .text-emerald-800,
+.dark .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-600 {
+  color: #fbbf24 !important;
+}
+
+.dark .text-rose-700,
+.dark .text-rose-800,
+.dark .text-rose-600 {
+  color: #f87171 !important;
+}
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-50\/50:hover {
+  background-color: #1f2937 !important;
+}
+
+.dark .bg-slate-105 {
+  background-color: #1f2937 !important;
+}
+
+.dark .bg-slate-50\/50 {
+  background-color: #111827/40 !important;
+}
+
+/* Maintain proper canvas rendering on specific custom prints / files */
+.id-card-digital,
+.bg-gradient-to-r,
+.bg-gradient-to-tr {
+  transition: background 0.3s ease;
+}
+
+

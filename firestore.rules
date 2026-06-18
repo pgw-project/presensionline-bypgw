@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Catch-all default read/write security
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Sekolah registry
+    match /sekolah/{sekolahId} {
+      allow read, write: if true;
+    }
+
+    // System-wide holidays
+    match /holidays/{date} {
+      allow read, write: if true;
+    }
+
+    // Tenant school namespaces
+    match /schools/{schoolId}/siswa/{nis} {
+      allow read, write: if true;
+    }
+
+    match /schools/{schoolId}/guru/{nip} {
+      allow read, write: if true;
+    }
+
+    match /schools/{schoolId}/kelas/{namaKelas} {
+      allow read, write: if true;
+    }
+
+    match /schools/{schoolId}/absensi/{absenId} {
+      allow read, write: if true;
+    }
+  }
+}
