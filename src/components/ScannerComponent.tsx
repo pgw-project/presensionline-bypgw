@@ -1,8 +1,37 @@
 import { useEffect, useState, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { motion } from 'motion/react';
-import { Camera, AlertTriangle, Play, Square, RefreshCw, UserCheck, Volume2, Zap, ZapOff, Info } from 'lucide-react';
+import { Camera, AlertTriangle, Play, Square, RefreshCw, UserCheck, Volume2, Zap, ZapOff, Info, Check, Maximize2, Minimize2 } from 'lucide-react';
 import { Siswa } from '../types';
+
+// Gracefully patch HTMLVideoElement.prototype.play globally to suppress play() promise interruption exceptions 
+// caused by browser security when camera tracks are unmounted or changed mid-request.
+if (typeof window !== 'undefined' && typeof HTMLVideoElement !== 'undefined') {
+  const originalPlay = HTMLVideoElement.prototype.play;
+  if (originalPlay && (originalPlay as any).__isPatched !== true) {
+    const patchedPlay = function (this: HTMLVideoElement, ...args: any[]) {
+      const promise = originalPlay.apply(this, args);
+      if (promise && typeof promise.catch === 'function') {
+        return promise.catch((err) => {
+          const errMsg = err?.message || "";
+          if (
+            err?.name === "AbortError" || 
+            errMsg.includes("interrupted") || 
+            errMsg.includes("play() request") ||
+            errMsg.includes("removed from the document")
+          ) {
+            console.warn("INFO: Suppressed play() interruption warning:", err);
+          } else {
+            return Promise.reject(err);
+          }
+        });
+      }
+      return promise;
+    };
+    (patchedPlay as any).__isPatched = true;
+    (HTMLVideoElement.prototype as any).play = patchedPlay;
+  }
+}
 
 interface ScannerComponentProps {
   onScanSuccess: (nis: string) => void;
@@ -12,6 +41,8 @@ interface ScannerComponentProps {
 
 export default function ScannerComponent({ onScanSuccess, siswaList, todayLogs }: ScannerComponentProps) {
   const [scannerActive, setScannerActive] = useState<boolean>(true);
+  const [localCooldown, setLocalCooldown] = useState<boolean>(false);
+  const cooldownRef = useRef<boolean>(false);
   const [cameraError, setCameraError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [devices, setDevices] = useState<any[]>([]);
@@ -19,8 +50,146 @@ export default function ScannerComponent({ onScanSuccess, siswaList, todayLogs }
   const [hasTorch, setHasTorch] = useState<boolean>(false);
   const [torchOn, setTorchOn] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   
   const qrScannerRef = useRef<Html5Qrcode | null>(null);
+  const onScanSuccessRef = useRef(onScanSuccess);
+
+  // Update ref when prop changes
+  useEffect(() => {
+    onScanSuccessRef.current = onScanSuccess;
+  }, [onScanSuccess]);
+
+  const isMountedRef = useRef<boolean>(true);
+  const operationQueueRef = useRef<Promise<any>>(Promise.resolve());
+
+  // Set mounted status for the absolute lifetime of this component
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const enqueueScannerOperation = (operation: () => Promise<void>) => {
+    operationQueueRef.current = operationQueueRef.current
+      .then(operation)
+      .catch((error) => console.warn("Scanner operation failed in queue:", error));
+  };
+
+  const safeStopScanner = async () => {
+    if (qrScannerRef.current) {
+      if (qrScannerRef.current.isScanning) {
+        try {
+          await qrScannerRef.current.stop();
+        } catch (err) {
+          console.warn("Error stopping scanner in safeStopScanner:", err);
+        }
+      }
+      qrScannerRef.current = null;
+    }
+    
+    // Clear the container HTML fully to make sure there's zero leftover elements
+    const container = document.getElementById("reader");
+    if (container) {
+      container.innerHTML = "";
+    }
+    
+    setHasTorch(false);
+    setTorchOn(false);
+  };
+
+  const safeStartScanner = async (deviceId: string) => {
+    // Ensure any outstanding active scanning is first stopped cleanly
+    await safeStopScanner();
+
+    if (!isMountedRef.current) return;
+
+    // Force empty container
+    const container = document.getElementById("reader");
+    if (container) {
+      container.innerHTML = "";
+    }
+
+    try {
+      const elementId = "reader";
+      const mainScannerObj = new Html5Qrcode(elementId);
+      qrScannerRef.current = mainScannerObj;
+
+      const config = {
+        fps: 30, // Extremely fast, smooth, near real-time scans (30 frames/sec)
+        qrbox: (width: number, height: number) => {
+          const smallest = Math.min(width, height);
+          const size = Math.max(160, Math.floor(smallest * 0.75));
+          return { width: size, height: size };
+        },
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true // Employs instant hardware-accelerated QR scanning if supported
+        }
+      };
+
+      const handleSuccessCallback = (decodedText: string) => {
+        if (cooldownRef.current) return;
+
+        cooldownRef.current = true;
+        setLocalCooldown(true);
+
+        playBeep();
+        onScanSuccessRef.current(decodedText.trim());
+
+        // Highly accurate responsive detection with a stable 3-second cooldown between student scans
+        setTimeout(() => {
+          cooldownRef.current = false;
+          if (isMountedRef.current) {
+            setLocalCooldown(false);
+          }
+        }, 3000);
+      };
+
+      const selectionConfig = deviceId 
+        ? deviceId
+        : { facingMode: "environment" };
+
+      await mainScannerObj.start(
+        selectionConfig,
+        config,
+        handleSuccessCallback,
+        () => {} // Silent fail on standard unmatched frames to keep log empty
+      );
+
+      // If component unmounted while starting, do cleanup immediately
+      if (!isMountedRef.current) {
+        try {
+          await mainScannerObj.stop();
+        } catch (cleanupErr) {
+          console.warn("Silent clean-up stop on unmounted state error:", cleanupErr);
+        }
+        return;
+      }
+
+      setCameraError(false);
+      setErrorMessage('');
+
+      // Safely check for flashlight capabilities on the running camera track
+      try {
+        const capabilities = mainScannerObj.getRunningTrackCapabilities();
+        if (capabilities && 'torch' in capabilities) {
+          setHasTorch(true);
+          setTorchOn(false);
+        } else {
+          setHasTorch(false);
+        }
+      } catch {
+        setHasTorch(false);
+      }
+
+    } catch (err: any) {
+      if (!isMountedRef.current) return;
+      console.warn("Kamera start sequence failed: ", err);
+      setCameraError(true);
+      setErrorMessage(err.message || 'Kamera tidak ditemukan atau izin akses ditolak browser.');
+    }
+  };
 
   // Play synthetic scanner success tone (A5-Pitch Pure Sine Wave with rapid exponential decay)
   const playBeep = () => {
@@ -90,90 +259,45 @@ export default function ScannerComponent({ onScanSuccess, siswaList, todayLogs }
   }, []);
 
   useEffect(() => {
-    const elementId = "reader";
-    let isMounted = true;
-
     if (scannerActive) {
-      const startScanner = async () => {
-        try {
-          const mainScannerObj = new Html5Qrcode(elementId);
-          qrScannerRef.current = mainScannerObj;
-
-          const config = {
-            fps: 15, // Smooth scans at high sample speed
-            qrbox: (width: number, height: number) => {
-              const smallest = Math.min(width, height);
-              // Larger box for fast and easy alignment
-              const size = Math.max(140, Math.floor(smallest * 0.7));
-              return { width: size, height: size };
-            }
-          };
-
-          // Build config target representation inside callback
-          const handleSuccessCallback = (decodedText: string) => {
-            playBeep();
-            onScanSuccess(decodedText.trim());
-            // Safe cooldown delay before resuming scanner
-            setScannerActive(false);
-            setTimeout(() => {
-              if (isMounted) setScannerActive(true);
-            }, 1800);
-          };
-
-          const selectionConfig = selectedDeviceId 
-            ? selectedDeviceId
-            : { facingMode: "environment" };
-
-          await mainScannerObj.start(
-            selectionConfig,
-            config,
-            handleSuccessCallback,
-            () => {} // Silent fail on standard unmatched frames to keep log empty
-          );
-
-          if (!isMounted) return;
-
-          setCameraError(false);
-          setErrorMessage('');
-
-          // Safely check for flashlight capabilities on the running camera track
-          try {
-            const capabilities = mainScannerObj.getRunningTrackCapabilities();
-            if (capabilities && 'torch' in capabilities) {
-              setHasTorch(true);
-              setTorchOn(false);
-            } else {
-              setHasTorch(false);
-            }
-          } catch {
-            setHasTorch(false);
-          }
-
-        } catch (err: any) {
-          if (!isMounted) return;
-          console.warn("Kamera start sequence failed: ", err);
-          setCameraError(true);
-          setErrorMessage(err.message || 'Kamera tidak ditemukan atau izin akses ditolak browser.');
-        }
-      };
-
-      const timer = setTimeout(() => {
-        startScanner();
-      }, 300);
-
-      return () => {
-        isMounted = false;
-        clearTimeout(timer);
-        if (qrScannerRef.current && qrScannerRef.current.isScanning) {
-          qrScannerRef.current.stop()
-            .then(() => {
-              qrScannerRef.current = null;
-            })
-            .catch(x => console.log("Silent clean-up stop error: ", x));
-        }
-      };
+      enqueueScannerOperation(async () => {
+        await safeStartScanner(selectedDeviceId);
+      });
+    } else {
+      enqueueScannerOperation(async () => {
+        await safeStopScanner();
+      });
     }
-  }, [scannerActive, selectedDeviceId, onScanSuccess]);
+
+    return () => {
+      enqueueScannerOperation(async () => {
+        await safeStopScanner();
+      });
+    };
+  }, [scannerActive, selectedDeviceId]);
+
+  // Safe exit from fullscreen with clean layout transition
+  const exitFullscreen = () => {
+    setIsFullscreen(false);
+  };
+
+  // Safe enter/toggle fullscreen with clean layout transition
+  const handleFullscreenToggle = () => {
+    setIsFullscreen(!isFullscreen);
+  };
+
+  // Exit virtual fullscreen mode on Escape key press with clean camera transition
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        exitFullscreen();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFullscreen]);
 
   const toggleTorch = async () => {
     if (qrScannerRef.current && qrScannerRef.current.isScanning && hasTorch) {
@@ -230,6 +354,18 @@ export default function ScannerComponent({ onScanSuccess, siswaList, todayLogs }
                 </button>
               )}
 
+              {/* Fullscreen Toggle */}
+              {scannerActive && (
+                <button
+                  onClick={handleFullscreenToggle}
+                  className="text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-200 active:scale-95"
+                  title="Aktifkan Mode Layar Penuh"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Layar Penuh</span>
+                </button>
+              )}
+
               {/* Toggle On/Off State */}
               <button
                 onClick={() => setScannerActive(!scannerActive)}
@@ -280,62 +416,117 @@ export default function ScannerComponent({ onScanSuccess, siswaList, todayLogs }
         </div>
 
         {/* READER STAGE CONTAINER WITH OVERLAY */}
-        <div className="relative w-full aspect-video bg-slate-950 rounded-2xl overflow-hidden flex flex-col items-center justify-center border-2 border-slate-800 shadow-inner">
-          {scannerActive ? (
-            <div id="reader" className="w-full h-full object-cover [&_video]:object-cover [&_video]:w-full [&_video]:h-full"></div>
-          ) : (
-            <div className="text-center p-6 text-slate-400">
-              <VideoOffPlaceholder message="Kamera dinonaktifkan sementara." />
-            </div>
-          )}
+        <div className={isFullscreen 
+          ? "fixed inset-0 z-[9999] bg-slate-950/98 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 animate-fade-in"
+          : "relative w-full aspect-video bg-slate-950 rounded-2xl overflow-hidden flex flex-col items-center justify-center border-2 border-slate-800 shadow-inner"
+        }>
+          {/* Header ONLY in Fullscreen Mode - Unconditional DOM index to prevent unmounting camera sibling */}
+          <div className={isFullscreen ? "text-center mb-5 max-w-sm sm:max-w-md animate-fade-in shrink-0 block" : "hidden"}>
+            <h3 className="text-lg sm:text-2xl font-black text-white tracking-wider uppercase flex items-center justify-center gap-2">
+              <Camera className="w-6 h-6 text-emerald-400 animate-pulse" />
+              <span>Pemindai QR Siswa (Layar Penuh)</span>
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">
+              Arahkan kartu QR siswa ke kamera untuk pemindaian instan
+            </p>
+          </div>
 
-          {/* Fancy Laser Animated Target Guide Overlay */}
-          {scannerActive && !cameraError && (
-            <div className="absolute inset-x-0 inset-y-0 pointer-events-none flex items-center justify-center">
-              {/* Overlay Corners */}
-              <div className="w-[180px] h-[180px] sm:w-[220px] sm:h-[220px] border-2 border-dashed border-emerald-400/20 rounded-lg relative">
-                {/* Visual corners */}
-                <span className="absolute -top-1 -left-1 w-4 h-4 border-t-4 border-l-4 border-emerald-500 rounded-tl"></span>
-                <span className="absolute -top-1 -right-1 w-4 h-4 border-t-4 border-r-4 border-emerald-500 rounded-tr"></span>
-                <span className="absolute -bottom-1 -left-1 w-4 h-4 border-b-4 border-l-4 border-emerald-500 rounded-bl"></span>
-                <span className="absolute -bottom-1 -right-1 w-4 h-4 border-b-4 border-r-4 border-emerald-500 rounded-br"></span>
-                
-                {/* Laser Scanning Loop line */}
-                <motion.div 
-                  initial={{ top: '5%' }}
-                  animate={{ top: '95%' }}
-                  transition={{ 
-                    duration: 2.5, 
-                    repeat: Infinity, 
-                    repeatType: "reverse", 
-                    ease: "easeInOut" 
-                  }}
-                  className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_rgba(52,211,153,0.8)]"
-                />
+          {/* Camera Viewport Wrapper - Persistent Key & stable slot 2 */}
+          <div 
+            key="camera-viewport-wrapper"
+            className={isFullscreen 
+              ? "relative w-full max-w-2xl aspect-[4/3] sm:aspect-video bg-slate-900 border-4 border-emerald-500/40 rounded-3xl overflow-hidden shadow-[0_0_80px_rgba(16,185,129,0.2)] flex flex-col items-center justify-center"
+              : "w-full h-full relative flex flex-col items-center justify-center"
+            }
+          >
+            {/* Keep reader permanently in DOM to prevent browser play() interruption exceptions when unmounting immediately */}
+            <div 
+              id="reader" 
+              key="reader-element" 
+              className={`w-full h-full object-cover [&_video]:object-cover [&_video]:w-full [&_video]:h-full border border-slate-800 rounded-lg ${scannerActive ? 'block' : 'hidden'}`}
+            ></div>
+
+            {!scannerActive && (
+              <div className="text-center p-6 text-slate-400">
+                <VideoOffPlaceholder message="Kamera dinonaktifkan sementara." />
               </div>
-            </div>
-          )}
+            )}
 
-          {cameraError && scannerActive && (
-            <div className="absolute inset-0 bg-slate-900/95 p-6 flex flex-col items-center justify-center text-center">
-              <AlertTriangle className="w-10 h-10 text-amber-500 mb-3" />
-              <h5 className="font-bold text-slate-100 text-sm">Masalah Akses Kamera</h5>
-              <p className="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
-                {errorMessage || "Tidak dapat mengakses kamera. Pastikan izin kamera telah disetujui di browser."}
-              </p>
-              <button
-                onClick={() => {
-                  setScannerActive(false);
-                  setTimeout(() => setScannerActive(true), 200);
-                }}
-                className="mt-4 bg-emerald-600 text-white text-xs px-4 py-2 font-semibold rounded-lg hover:bg-emerald-700 flex items-center gap-1.5 transition-colors"
-                id="btn-re-init-camera"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Hubungkan Ulang</span>
-              </button>
-            </div>
-          )}
+            {/* Cooldown Overlay */}
+            {scannerActive && localCooldown && (
+              <div className="absolute inset-0 bg-emerald-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-center p-4 z-10 animate-fade-in">
+                <div className="w-12 h-12 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center mb-3 animate-bounce">
+                  <Check className="w-6 h-6 text-emerald-400" />
+                </div>
+                <h5 className="font-bold text-emerald-300 text-sm">Presensi Terkirim</h5>
+                <p className="text-[11px] text-emerald-400/85 mt-1 max-w-xs leading-normal">
+                  Menyimpan data kehadiran. Mempersiapkan sensor untuk pemindaian berikutnya...
+                </p>
+              </div>
+            )}
+
+            {/* Fancy Laser Animated Target Guide Overlay */}
+            {scannerActive && !cameraError && !localCooldown && (
+              <div className="absolute inset-x-0 inset-y-0 pointer-events-none flex items-center justify-center">
+                {/* Overlay Corners */}
+                <div className={isFullscreen
+                  ? "w-[240px] h-[240px] sm:w-[320px] sm:h-[320px] border-2 border-dashed border-emerald-400/30 rounded-2xl relative"
+                  : "w-[180px] h-[180px] sm:w-[220px] sm:h-[220px] border-2 border-dashed border-emerald-400/20 rounded-lg relative"
+                }>
+                  {/* Visual corners */}
+                  <span className="absolute -top-1 -left-1 w-4 h-4 border-t-4 border-l-4 border-emerald-500 rounded-tl"></span>
+                  <span className="absolute -top-1 -right-1 w-4 h-4 border-t-4 border-r-4 border-emerald-500 rounded-tr"></span>
+                  <span className="absolute -bottom-1 -left-1 w-4 h-4 border-b-4 border-l-4 border-emerald-500 rounded-bl"></span>
+                  <span className="absolute -bottom-1 -right-1 w-4 h-4 border-b-4 border-r-4 border-emerald-500 rounded-br"></span>
+                  
+                  {/* Laser Scanning Loop line */}
+                  <motion.div 
+                    initial={{ top: '5%' }}
+                    animate={{ top: '95%' }}
+                    transition={{ 
+                      duration: 2.0, 
+                      repeat: Infinity, 
+                      repeatType: "reverse", 
+                      ease: "easeInOut" 
+                    }}
+                    className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_rgba(52,211,153,0.8)]"
+                  />
+                </div>
+              </div>
+            )}
+
+            {cameraError && scannerActive && (
+              <div className="absolute inset-0 bg-slate-900/95 p-6 flex flex-col items-center justify-center text-center">
+                <AlertTriangle className="w-10 h-10 text-amber-500 mb-3" />
+                <h5 className="font-bold text-slate-100 text-sm">Masalah Akses Kamera</h5>
+                <p className="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
+                  {errorMessage || "Tidak dapat mengakses kamera. Pastikan izin kamera telah disetujui di browser."}
+                </p>
+                <button
+                  onClick={() => {
+                    setScannerActive(false);
+                    setTimeout(() => setScannerActive(true), 200);
+                  }}
+                  className="mt-4 bg-emerald-600 text-white text-xs px-4 py-2 font-semibold rounded-lg hover:bg-emerald-700 flex items-center gap-1.5 transition-colors"
+                  id="btn-re-init-camera"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Hubungkan Ulang</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Footer and exit buttons ONLY in Fullscreen Mode - Unconditional DOM index, conditional visual visibility */}
+          <div className={isFullscreen ? "mt-5 flex flex-col items-center gap-3 w-full max-w-2xl shrink-0 animate-fade-in block" : "hidden"}>
+            <button
+              onClick={exitFullscreen}
+              className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-black text-xs px-5 py-3 rounded-xl flex items-center gap-2 shadow-2xl transition-all tracking-wider uppercase"
+            >
+              <Minimize2 className="w-4 h-4" />
+              <span>Keluar Layar Penuh (ESC)</span>
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
@@ -343,7 +534,7 @@ export default function ScannerComponent({ onScanSuccess, siswaList, todayLogs }
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
             <span>Sensor Pemindai aktif berkelanjutan.</span>
           </div>
-          {scannerActive && <span className="font-mono text-[10px] text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded">Smooth (15 Fps)</span>}
+          {scannerActive && <span className="font-mono text-[10px] text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded">Ultra-Fast (30 Fps)</span>}
         </div>
       </div>
 
