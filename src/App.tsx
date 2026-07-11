@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
+  User,
   GraduationCap, 
   School, 
   ClipboardCheck, 
@@ -877,7 +878,7 @@ export default function App() {
     }
   };
 
-  const compressProfileImage = (base64Str: string, maxWidth = 250, maxHeight = 250, quality = 0.65): Promise<string> => {
+  const compressProfileImage = (base64Str: string, maxWidth = 150, maxHeight = 150, quality = 0.60): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.src = base64Str;
@@ -927,6 +928,7 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = async () => {
       const base64Data = reader.result as string;
+      triggerToast('Mengompresi foto profil secara otomatis...', 'success');
       const compressedData = await compressProfileImage(base64Data);
       savePhotoForUser(compressedData);
     };
@@ -1007,15 +1009,11 @@ export default function App() {
 
     // Verification if Session is limited to a specific class level (Tingkat)
     if (activeSessionTingkat) {
-      let matchesTingkat = false;
       const cleanKelas = student.kelas.toUpperCase().trim();
-      if (activeSessionTingkat === 'XII') {
-        matchesTingkat = cleanKelas.startsWith('XII');
-      } else if (activeSessionTingkat === 'XI') {
-        matchesTingkat = cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-      } else if (activeSessionTingkat === 'X') {
-        matchesTingkat = cleanKelas.startsWith('X') && !cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-      }
+      const targetTingkat = activeSessionTingkat.toUpperCase();
+      const matchesTingkat = cleanKelas === targetTingkat ||
+                             cleanKelas.startsWith(targetTingkat + '-') ||
+                             cleanKelas.startsWith(targetTingkat + ' ');
 
       if (!matchesTingkat) {
         triggerToast(`Absensi Gagal! Siswa ${student.nama} (${student.kelas}) bukan tingkatan kelas ${activeSessionTingkat} yang ditentukan pada Sesi Aktif Anda saat ini.`, 'warning');
@@ -1110,17 +1108,10 @@ export default function App() {
         setFieldMuridKelas(s.kelas);
         
         // Parse level and major from student's class string
-        let parsedLevel = 'X';
-        let parsedJurusan = 'ATPH';
         const cleanK = s.kelas.trim().toUpperCase();
-        
-        if (cleanK.startsWith('XII')) {
-          parsedLevel = 'XII';
-        } else if (cleanK.startsWith('XI')) {
-          parsedLevel = 'XI';
-        } else if (cleanK.startsWith('X')) {
-          parsedLevel = 'X';
-        }
+        const parts = cleanK.split(/[\s\-]+/);
+        let parsedLevel = parts[0] || 'X';
+        let parsedJurusan = 'ATPH';
         
         if (cleanK.includes('ATPH')) {
           parsedJurusan = 'ATPH';
@@ -1537,15 +1528,11 @@ export default function App() {
 
     // Verification if Session is limited to a specific class level (Tingkat)
     if (activeSessionTingkat) {
-      let matchesTingkat = false;
       const cleanKelas = student.kelas.toUpperCase().trim();
-      if (activeSessionTingkat === 'XII') {
-        matchesTingkat = cleanKelas.startsWith('XII');
-      } else if (activeSessionTingkat === 'XI') {
-        matchesTingkat = cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-      } else if (activeSessionTingkat === 'X') {
-        matchesTingkat = cleanKelas.startsWith('X') && !cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-      }
+      const targetTingkat = activeSessionTingkat.toUpperCase();
+      const matchesTingkat = cleanKelas === targetTingkat ||
+                             cleanKelas.startsWith(targetTingkat + '-') ||
+                             cleanKelas.startsWith(targetTingkat + ' ');
 
       if (!matchesTingkat) {
         triggerToast(`Absensi Gagal! Siswa ${student.nama} (${student.kelas}) bukan tingkatan kelas ${activeSessionTingkat} yang ditentukan pada Sesi Aktif Anda saat ini.`, 'warning');
@@ -1921,7 +1908,8 @@ export default function App() {
         const isMyRecord = l.guruNip === appState.currentUser?.username;
         const normalizedLogClass = normalizeClassName(l.kelas);
         const matchesClass = normalizedManagedClasses.some(mc => normalizedLogClass === mc || normalizedLogClass.includes(mc) || mc.includes(normalizedLogClass));
-        return isMyRecord && matchesClass;
+        const isWaliOfThisClass = currentGuruObj ? isTeacherWaliOfClass(currentGuruObj, { namaKelas: l.kelas }) : false;
+        return (isMyRecord || isWaliOfThisClass) && matchesClass;
       })
     : appState.absensi;
 
@@ -2098,56 +2086,90 @@ export default function App() {
         </AnimatePresence>
       </div>
 
-      {/* LOGIN VIEW */}
+      {/* LOGIN VIEW (PERMANENT DARK MODE) */}
       {!appState.currentUser ? (
-        <div className={`min-h-screen flex items-center justify-center p-4 relative transition-colors duration-300 ${isDarkMode ? 'bg-gradient-to-tr from-slate-900 via-slate-950 to-emerald-950 text-white' : 'bg-gradient-to-tr from-slate-50 via-slate-100 to-emerald-50/30 text-slate-800'}`} id="login-layout-stage">
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8 relative overflow-y-auto overflow-x-hidden bg-[#060c14] text-white" id="login-layout-stage">
           
-          {/* FLOATING THEME TOGGLE FOR MOBILE (HP VIEW) */}
-          <div className="absolute top-4 right-4 z-50 md:hidden">
-            <button
-              onClick={toggleTheme}
-              className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all active:scale-95 shadow-lg cursor-pointer border ${
-                isDarkMode 
-                  ? 'bg-slate-900 text-amber-400 border-slate-800' 
-                  : 'bg-white text-slate-705 border-slate-200/80'
-              }`}
-              aria-label="Toggle Theme Mode"
-            >
-              {isDarkMode ? (
-                <Sun className="w-5 h-5 text-emerald-400 animate-pulse" />
-              ) : (
-                <Moon className="w-5 h-5 text-indigo-600" />
-              )}
-            </button>
-          </div>
-
-          <div className="w-full max-w-lg">
-            
-            {/* Title block */}
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-gradient-to-tr from-emerald-500 to-indigo-600 text-white rounded-3xl flex items-center justify-center shadow-lg shadow-emerald-500/10 mx-auto mb-4">
-                <School className="w-8 h-8" />
-              </div>
-              <h1 className={`text-2xl font-black tracking-tight uppercase transition-colors duration-200 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Sistem Absensi QR Code</h1>
-              <p className={`text-xs mt-1 transition-colors duration-200 ${isDarkMode ? 'text-slate-400' : 'text-slate-500 font-semibold'}`}>Presensi Realtime - By PGW</p>
+          {/* HIGH-TECH FUTURISTIC CYBER GRADIENT BACKDROP */}
+          <div className="absolute inset-0 z-0 select-none pointer-events-none overflow-hidden">
+            {/* Ambient colorful grid pattern */}
+            <div className="absolute inset-0 opacity-30">
+              <div className="absolute inset-0 bg-[linear-gradient(to_right,#0ea5e9_1px,transparent_1px),linear-gradient(to_bottom,#0ea5e9_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
             </div>
 
-            {/* Unified login card */}
-            <div className="bg-white rounded-3xl p-6 shadow-2xl border border-slate-100">
-              <h2 className="text-slate-800 font-bold text-lg mb-4 text-center">Masuk ke Portal</h2>
+            {/* Glowing neon atmospheric lights mimicking the uploaded image */}
+            <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-cyan-500/10 blur-[120px] pointer-events-none animate-pulse duration-[8000ms]" />
+            <div className="absolute bottom-[-20%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-sky-500/15 blur-[100px] pointer-events-none animate-pulse duration-[6000ms]" />
+
+            {/* Ambient abstract texture backdrop */}
+            <img 
+              src="https://images.unsplash.com/photo-1554034483-04fda0d3507b?auto=format&fit=crop&w=1920&q=80" 
+              alt="Bright Sky Blue and White Aesthetic Backdrop" 
+              className="w-full h-full object-cover opacity-20 mix-blend-color-dodge filter saturate-150"
+              referrerPolicy="no-referrer"
+            />
+            
+            {/* Real-time moving elegant scanning laser line */}
+            <div className="absolute inset-0 opacity-[0.08] mix-blend-color-dodge">
+              <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent absolute top-0 animate-[scan-laser_4s_ease-in-out_infinite]" />
+            </div>
+          </div>
+
+          {/* Inline Animation styles for the laser scanning sweeps */}
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes scan-laser-internal {
+              0% { top: 8%; }
+              50% { top: 92%; }
+              100% { top: 8%; }
+            }
+            @keyframes scan-laser {
+              0% { transform: translateY(0); }
+              50% { transform: translateY(100vh); }
+              100% { transform: translateY(0); }
+            }
+          `}} />
+
+          {/* CONTENT LAYER */}
+          <div className="w-full max-w-md z-10 flex flex-col items-center">
+            
+            {/* 1. BRANDING TITLE (MATCHING USER'S UPLOADED IMAGE) */}
+            <div className="text-center mb-6">
+              <div className="inline-block px-3 py-1 mb-3 rounded-full text-[10px] font-black tracking-[0.3em] uppercase bg-gradient-to-r from-cyan-500/20 to-sky-500/20 text-cyan-300 border border-cyan-400/30 backdrop-blur-sm shadow-[0_0_15px_rgba(34,211,238,0.2)]">
+                by PGW
+              </div>
+              <h1 className="text-3xl font-extrabold tracking-[0.1em] transition-colors duration-300 uppercase text-white">
+                Sistem Absensi
+              </h1>
+              <h2 className="text-4xl font-black tracking-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-400 to-emerald-400 mt-1 uppercase drop-shadow-[0_0_15px_rgba(34,211,238,0.25)]">
+                QR CODE
+              </h2>
+              <p className="text-[10px] tracking-[0.25em] font-bold uppercase mt-3 text-slate-400">
+                ABSENSI MUDAH & CEPAT
+              </p>
+            </div>
+
+            {/* 2. THE CENTERPIECE: REMOVED FUTURISTIC QR CODE SCANNERS PER USER'S REQUEST */}
+
+            {/* 3. GLASSMORPHISM PORTAL ENTRY CARD (FROM IMAGE) */}
+            <div className="w-full backdrop-blur-xl border transition-all duration-300 rounded-[32px] p-6 shadow-2xl bg-slate-950/50 border-white/15 shadow-[0_25px_50px_rgba(0,0,0,0.5)]">
+              <h2 className="font-bold text-center text-lg mb-4 tracking-wide text-white">
+                Masuk ke Portal
+              </h2>
               
               <div className="space-y-4">
                 
                 {/* Role Switcher */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-450 uppercase mb-2 text-center">Tipe Hak Akses</label>
-                  <div className="grid grid-cols-2 gap-2 bg-slate-105 p-1 rounded-2xl border border-slate-200/50">
+                  <label className="block text-[10px] font-bold uppercase mb-2 text-center tracking-wider text-slate-400">
+                    Tipe Hak Akses
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl border bg-slate-900/50 border-white/5">
                     <button
                       onClick={() => setLoginRole('siswa')}
                       className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
                         loginRole === 'siswa' 
-                          ? 'bg-white text-slate-900 shadow-sm' 
-                          : 'text-slate-500 hover:text-slate-800'
+                          ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/20' 
+                          : 'text-slate-400 hover:text-slate-200'
                       }`}
                       id="btn-login-role-siswa"
                     >
@@ -2157,8 +2179,8 @@ export default function App() {
                       onClick={() => setLoginRole('guru')}
                       className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
                         loginRole === 'guru' 
-                          ? 'bg-white text-slate-900 shadow-sm' 
-                          : 'text-slate-500 hover:text-slate-800'
+                          ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/20' 
+                          : 'text-slate-400 hover:text-slate-200'
                       }`}
                       id="btn-login-role-guru"
                     >
@@ -2167,33 +2189,41 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* ID input */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">ID Pengguna (NISN / NIP)</label>
+                  <label className="block text-[10px] font-bold uppercase mb-1.5 tracking-wide text-slate-300">
+                    ID Pengguna (NISN / NIP)
+                  </label>
                   <input
                     type="text"
                     value={loginUsername}
                     onChange={(e) => setLoginUsername(e.target.value)}
-                    placeholder={loginRole === 'siswa' ? "Contoh: 12345 (Budi Santoso)" : "Contoh: admin atau 19800101"}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 text-slate-800 px-4 py-3 rounded-2xl font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all placeholder:text-slate-400"
+                    placeholder={loginRole === 'siswa' ? "Contoh: 12345 (Budi)" : "Contoh: admin / 19800101"}
+                    className="w-full text-sm px-4 py-3 rounded-2xl font-medium focus:outline-none focus:ring-2 focus:ring-cyan-400 transition-all bg-slate-900/60 border border-white/10 text-white placeholder:text-slate-500"
                     id="input-login-username"
                   />
                 </div>
 
+                {/* Password input */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Password Login</label>
+                  <label className="block text-[10px] font-bold uppercase mb-1.5 tracking-wide text-slate-300">
+                    Password Login
+                  </label>
                   <input
                     type="password"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     placeholder="Masukkan sandi Anda"
-                    className="w-full text-sm bg-slate-50 border border-slate-200 text-slate-800 px-4 py-3 rounded-2xl font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all placeholder:text-slate-400"
+                    className="w-full text-sm px-4 py-3 rounded-2xl font-medium focus:outline-none focus:ring-2 focus:ring-cyan-400 transition-all bg-slate-900/60 border border-white/10 text-white placeholder:text-slate-500"
                     id="input-login-password"
                   />
                 </div>
 
-                {/* Pilih Asal Sekolah (Manual input matching school registered by server admin) */}
+                {/* Pilih Asal Sekolah */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Pilih Asal Sekolah</label>
+                  <label className="block text-[10px] font-bold uppercase mb-1.5 tracking-wide text-slate-300">
+                    Pilih Asal Sekolah
+                  </label>
                   <div className="relative">
                     <input
                       type="text"
@@ -2201,7 +2231,6 @@ export default function App() {
                       onChange={(e) => {
                         const typedVal = e.target.value;
                         setSchoolInputValue(typedVal);
-                        // Find matching school by case-insensitive name or ID
                         const found = sekolahList.find(s => 
                           s.nama.toLowerCase() === typedVal.toLowerCase() ||
                           s.id.toLowerCase() === typedVal.toLowerCase()
@@ -2215,7 +2244,7 @@ export default function App() {
                         }
                       }}
                       placeholder="Ketik manual nama sekolah binaan..."
-                      className="w-full text-xs bg-slate-50 border border-slate-200 text-slate-800 px-4 py-3.5 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all placeholder:text-slate-400"
+                      className="w-full text-xs px-4 py-3.5 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-cyan-400 transition-all bg-slate-900/60 border border-white/10 text-white placeholder:text-slate-500"
                       id="input-login-school-manual"
                     />
                   </div>
@@ -2223,12 +2252,12 @@ export default function App() {
                   {schoolInputValue.trim() && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-semibold">
                       {activeSchoolId ? (
-                        <span className="text-emerald-600 flex items-center gap-1">
+                        <span className="text-emerald-500 flex items-center gap-1">
                           <Check className="w-3.5 h-3.5" />
                           <span>Sekolah Terverifikasi: ID [{activeSchoolId}]</span>
                         </span>
                       ) : (
-                        <span className="text-amber-600 flex items-center gap-1 animate-pulse">
+                        <span className="text-amber-500 flex items-center gap-1 animate-pulse">
                           <span>⚠️ Sekolah belum cocok dengan database Server Admin.</span>
                         </span>
                       )}
@@ -2239,9 +2268,10 @@ export default function App() {
                   )}
                 </div>
 
+                {/* Elegant glow trigger login button */}
                 <button
                   onClick={executeLogin}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm py-3 px-4 rounded-2xl transition-all shadow-md mt-6 flex items-center justify-center gap-2"
+                  className="w-full bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-600 hover:from-cyan-400 hover:via-sky-400 hover:to-indigo-500 text-white font-bold text-sm py-3.5 px-4 rounded-2xl transition-all shadow-lg shadow-cyan-500/10 hover:shadow-cyan-500/20 active:scale-[0.98] mt-6 flex items-center justify-center gap-2 cursor-pointer"
                   id="btn-execute-login"
                 >
                   <LogIn className="w-4 h-4" />
@@ -5280,13 +5310,10 @@ export default function App() {
                     let matchesTingkat = true;
                     if (fieldManualAbsenFilterTingkat) {
                       const cleanKelas = s.kelas.trim().toUpperCase();
-                      if (fieldManualAbsenFilterTingkat === 'XII') {
-                        matchesTingkat = cleanKelas.startsWith('XII');
-                      } else if (fieldManualAbsenFilterTingkat === 'XI') {
-                        matchesTingkat = cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-                      } else if (fieldManualAbsenFilterTingkat === 'X') {
-                        matchesTingkat = cleanKelas.startsWith('X') && !cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-                      }
+                      const targetTingkat = fieldManualAbsenFilterTingkat.toUpperCase();
+                      matchesTingkat = cleanKelas === targetTingkat ||
+                                       cleanKelas.startsWith(targetTingkat + '-') ||
+                                       cleanKelas.startsWith(targetTingkat + ' ');
                     }
 
                     const matchesJurusan = fieldManualAbsenFilterJurusan

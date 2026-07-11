@@ -113,8 +113,62 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
 
   const disableExport = isFutureDate || isSunday() || isInvalidRange;
 
-  // Extract unique subjects that have entries in the logs
-  const availableMapels = Array.from(new Set(absensiList.map(l => l.mataPelajaran).filter(Boolean))) as string[];
+  // Extract unique subjects that have entries in the logs and class management
+  const availableMapels = Array.from(new Set<string>([
+    ...absensiList.map(l => l.mataPelajaran).filter(Boolean),
+    ...kelasList.map(k => k.mapel).filter(Boolean)
+  ])).map(m => m.trim()).filter(Boolean).sort();
+
+  // Extract unique grade levels dynamically from database input
+  const availableTingkats = Array.from(new Set<string>([
+    ...kelasList.map(k => k.kelas).filter(Boolean),
+    ...kelasList.map(k => {
+      const name = k.namaKelas.trim().toUpperCase();
+      const parts = name.split(/[\s\-]+/);
+      return parts[0] || '';
+    }).filter(Boolean),
+    ...siswaList.map(s => {
+      const name = s.kelas.trim().toUpperCase();
+      const parts = name.split(/[\s\-]+/);
+      return parts[0] || '';
+    }).filter(Boolean)
+  ])).filter(Boolean).sort((a, b) => {
+    const standard = ['X', 'XI', 'XII', '10', '11', '12', '1', '2', '3'];
+    const idxA = standard.indexOf(a);
+    const idxB = standard.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  // Extract unique majors/jurusans dynamically from database input
+  const availableJurusans = Array.from(new Set<string>([
+    ...kelasList.map(k => k.jurusan).filter(Boolean),
+    ...kelasList.map(k => {
+      if (k.jurusan) return k.jurusan;
+      const parts = k.namaKelas.split(/[\s\-_]+/);
+      const majorPart = parts.find(p => {
+        const u = p.toUpperCase().trim();
+        return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
+      });
+      return majorPart || '';
+    }).filter(Boolean),
+    ...siswaList.map(s => {
+      const parts = s.kelas.split(/[\s\-_]+/);
+      const majorPart = parts.find(p => {
+        const u = p.toUpperCase().trim();
+        return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
+      });
+      return majorPart || '';
+    }).filter(Boolean),
+  ])).map(j => j.toUpperCase().trim()).filter(Boolean).sort();
+
+  // Extract unique specific class names (Rombel) dynamically
+  const availableClasses = Array.from(new Set<string>([
+    ...kelasList.map(k => k.namaKelas).filter(Boolean),
+    ...siswaList.map(s => s.kelas).filter(Boolean)
+  ])).filter(Boolean).sort();
 
   // Helper safe date elements generator
   const getDatesInRange = (startStr: string, endStr: string) => {
@@ -147,18 +201,15 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
   // Find all active students in the filtered class
   const classStudents = siswaList.filter(s => {
     const matchesStatus = s.status === 'Aktif';
-    const matchesKelas = filterKelas ? s.kelas === filterKelas : true;
+    const matchesKelas = filterKelas ? s.kelas.trim().toUpperCase() === filterKelas.trim().toUpperCase() : true;
 
     let matchesTingkat = true;
     if (filterTingkat) {
       const cleanKelas = s.kelas.trim().toUpperCase();
-      if (filterTingkat === 'XII') {
-        matchesTingkat = cleanKelas.startsWith('XII');
-      } else if (filterTingkat === 'XI') {
-        matchesTingkat = cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-      } else if (filterTingkat === 'X') {
-        matchesTingkat = cleanKelas.startsWith('X') && !cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-      }
+      const targetTingkat = filterTingkat.toUpperCase();
+      matchesTingkat = cleanKelas === targetTingkat ||
+                       cleanKelas.startsWith(targetTingkat + '-') ||
+                       cleanKelas.startsWith(targetTingkat + ' ');
     }
 
     const matchesJurusan = filterJurusan 
@@ -200,7 +251,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
           kelas: siswa.kelas,
           status: displayStatus,
           jamAbsen: '-',
-          mapelLog: currentHolidayReason ? 'Libur' : '-',
+          mapelLog: currentHolidayReason ? 'Libur' : (filterMapel || 'Umum'),
           jamKeLog: currentHolidayReason ? 'Libur' : '-',
           guruLog: currentHolidayReason ? 'Libur' : '-'
         });
@@ -279,7 +330,6 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
       'Hari & Tanggal': item.hariDanTanggal,
       'NISN': item.nis,
       'Nama Siswa': item.nama,
-      'Kelas': item.kelas,
       'Mata Pelajaran': item.mapelLog,
       'Jam Ke': item.jamKeLog,
       'Guru Pengampu': item.guruLog,
@@ -300,9 +350,9 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
       { wch: 25 },
       { wch: 15 },
       { wch: 30 },
-      { wch: 15 },
-      { wch: 20 },
-      { wch: 20 },
+      { wch: 22 },
+      { wch: 12 },
+      { wch: 25 },
       { wch: 18 },
       { wch: 20 }
     ];
@@ -410,7 +460,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
             </div>
           )}
 
-          <div>
+           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 font-sans">Tingkat Kelas</label>
             <select
               value={filterTingkat}
@@ -421,10 +471,10 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
               className="bg-white border border-slate-200 text-slate-800 px-3 py-1.5 text-sm rounded-xl font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer"
               id="lap-harian-tingkat-selector"
             >
-              <option value="">Semua Kelas</option>
-              <option value="X">Kelas X</option>
-              <option value="XI">Kelas XI</option>
-              <option value="XII">Kelas XII</option>
+              <option value="">Semua Tingkat</option>
+              {availableTingkats.map(t => (
+                <option key={t} value={t}>Kelas {t}</option>
+              ))}
             </select>
           </div>
 
@@ -440,9 +490,9 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
               id="lap-harian-jurusan-selector"
             >
               <option value="">Semua Jurusan</option>
-              <option value="ATPH">ATPH</option>
-              <option value="MPLB">MPLB</option>
-              <option value="TSM">TSM</option>
+              {availableJurusans.map(j => (
+                <option key={j} value={j}>{j}</option>
+              ))}
             </select>
           </div>
 
@@ -556,7 +606,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
             )}
             <span className="mx-3">•</span>
             Kelas: <span className="font-semibold text-slate-800 uppercase">
-              {filterKelas || [
+              {[
                 filterTingkat ? `Kelas ${filterTingkat}` : '',
                 filterJurusan ? `Jurusan ${filterJurusan}` : ''
               ].filter(Boolean).join(' ') || 'Semua Kelas'}
@@ -623,7 +673,6 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
                 )}
                 <th className="py-3 px-4 font-semibold w-28">NISN</th>
                 <th className="py-3 px-4 font-semibold text-slate-900">Nama Siswa</th>
-                <th className="py-3 px-4 font-semibold text-center w-24">Kelas</th>
                 <th className="py-3 px-4 font-semibold text-slate-850">Mata Pelajaran</th>
                 <th className="py-3 px-4 font-semibold text-slate-850 text-center w-20">Jam Ke</th>
                 <th className="py-3 px-4 font-semibold text-slate-850 font-sans">Guru Pengampu</th>
@@ -634,7 +683,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
             <tbody className="divide-y divide-slate-100">
               {processedLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={reportMode === 'rentang' ? 10 : 9} className="py-12 text-center text-slate-400 font-medium">
+                  <td colSpan={reportMode === 'rentang' ? 9 : 8} className="py-12 text-center text-slate-400 font-medium">
                     Tidak ada log murid yang cocok dengan kriteria filter yang dipilih.
                   </td>
                 </tr>
@@ -647,7 +696,6 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
                     )}
                     <td className="py-3 px-4 font-mono font-medium text-slate-500">{item.nis}</td>
                     <td className="py-3 px-4 font-bold text-slate-850">{item.nama}</td>
-                    <td className="py-3 px-4 text-center uppercase font-medium">{item.kelas}</td>
                     <td className="py-3 px-4">
                       {item.mapelLog === 'Libur' ? (
                         <span className="font-semibold text-amber-700 text-xs bg-amber-50 px-2 py-1 rounded-md border border-amber-100/60 block truncate max-w-[150px]">

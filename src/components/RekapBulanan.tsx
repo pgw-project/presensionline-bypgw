@@ -12,11 +12,14 @@ interface RekapBulananProps {
 }
 
 export default function RekapBulanan({ siswaList, absensiList, kelasList, holidays = [] }: RekapBulananProps) {
-  const [selectedBulan, setSelectedBulan] = useState<string>('Juni 2026');
+  const [selectedBulan, setSelectedBulan] = useState<string>(() => {
+    return new Date().toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+  });
   const [selectedKelas, setSelectedKelas] = useState<string>('');
   const [filterTingkat, setFilterTingkat] = useState<string>('');
   const [filterJurusan, setFilterJurusan] = useState<string>('');
   const [filterMapel, setFilterMapel] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'ringkasan' | 'mapel'>('ringkasan');
 
   const isMonthInFuture = (monthStr: string) => {
     const monthNames = [
@@ -42,14 +45,63 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
 
   const isFutureMonthSelected = isMonthInFuture(selectedBulan);
 
-  // Extract unique subjects that have entries in the logs
-  const availableMapels = Array.from(new Set(absensiList.map(l => l.mataPelajaran).filter(Boolean))) as string[];
+  // Extract unique subjects that have entries in the logs and class management
+  const availableMapels = Array.from(new Set<string>([
+    ...absensiList.map(l => l.mataPelajaran).filter(Boolean),
+    ...kelasList.map(k => k.mapel).filter(Boolean)
+  ])).map(m => m.trim()).filter(Boolean).sort();
+
+  // Extract unique grade levels dynamically from database input
+  const availableTingkats = Array.from(new Set<string>([
+    ...kelasList.map(k => k.kelas).filter(Boolean),
+    ...kelasList.map(k => {
+      const name = k.namaKelas.trim().toUpperCase();
+      const parts = name.split(/[\s\-]+/);
+      return parts[0] || '';
+    }).filter(Boolean),
+    ...siswaList.map(s => {
+      const name = s.kelas.trim().toUpperCase();
+      const parts = name.split(/[\s\-]+/);
+      return parts[0] || '';
+    }).filter(Boolean)
+  ])).filter(Boolean).sort((a, b) => {
+    const standard = ['X', 'XI', 'XII', '10', '11', '12', '1', '2', '3'];
+    const idxA = standard.indexOf(a);
+    const idxB = standard.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  // Extract unique majors/jurusans dynamically from database input
+  const availableJurusans = Array.from(new Set<string>([
+    ...kelasList.map(k => k.jurusan).filter(Boolean),
+    ...kelasList.map(k => {
+      if (k.jurusan) return k.jurusan;
+      const parts = k.namaKelas.split(/[\s\-_]+/);
+      const majorPart = parts.find(p => {
+        const u = p.toUpperCase().trim();
+        return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
+      });
+      return majorPart || '';
+    }).filter(Boolean),
+    ...siswaList.map(s => {
+      const parts = s.kelas.split(/[\s\-_]+/);
+      const majorPart = parts.find(p => {
+        const u = p.toUpperCase().trim();
+        return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
+      });
+      return majorPart || '';
+    }).filter(Boolean),
+  ])).map(j => j.toUpperCase().trim()).filter(Boolean).sort();
 
   // Extract unique months from attendance logs (excluding future months)
   const getAvailableMonths = () => {
     const months = new Set<string>();
     // Default current month if nothing in logs
-    months.add('Juni 2026');
+    const currentMonth = new Date().toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+    months.add(currentMonth);
     absensiList.forEach(log => {
       if (log.bulan) {
         months.add(log.bulan);
@@ -113,21 +165,24 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
 
   const scheduledHolidays = getSundaysAndHolidaysInMonth();
 
+  // Extract unique specific class names (Rombel) dynamically
+  const availableClasses = Array.from(new Set<string>([
+    ...kelasList.map(k => k.namaKelas).filter(Boolean),
+    ...siswaList.map(s => s.kelas).filter(Boolean)
+  ])).filter(Boolean).sort();
+
   // Find all active students in that class
   const classStudents = siswaList.filter(s => {
     const matchesStatus = s.status === 'Aktif';
-    const matchesKelas = selectedKelas ? s.kelas === selectedKelas : true;
+    const matchesKelas = selectedKelas ? s.kelas.trim().toUpperCase() === selectedKelas.trim().toUpperCase() : true;
 
     let matchesTingkat = true;
     if (filterTingkat) {
       const cleanKelas = s.kelas.trim().toUpperCase();
-      if (filterTingkat === 'XII') {
-        matchesTingkat = cleanKelas.startsWith('XII');
-      } else if (filterTingkat === 'XI') {
-        matchesTingkat = cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-      } else if (filterTingkat === 'X') {
-        matchesTingkat = cleanKelas.startsWith('X') && !cleanKelas.startsWith('XI') && !cleanKelas.startsWith('XII');
-      }
+      const targetTingkat = filterTingkat.toUpperCase();
+      matchesTingkat = cleanKelas === targetTingkat ||
+                       cleanKelas.startsWith(targetTingkat + '-') ||
+                       cleanKelas.startsWith(targetTingkat + ' ');
     }
 
     const matchesJurusan = filterJurusan 
@@ -142,18 +197,15 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
     absensiList
       .filter(log => {
         const matchBulan = log.bulan === selectedBulan;
-        const matchKelas = selectedKelas ? log.kelas === selectedKelas : true;
+        const matchKelas = selectedKelas ? log.kelas.trim().toUpperCase() === selectedKelas.trim().toUpperCase() : true;
 
         let matchTingkat = true;
         if (filterTingkat) {
           const cleanK = log.kelas.trim().toUpperCase();
-          if (filterTingkat === 'XII') {
-            matchTingkat = cleanK.startsWith('XII');
-          } else if (filterTingkat === 'XI') {
-            matchTingkat = cleanK.startsWith('XI') && !cleanK.startsWith('XII');
-          } else if (filterTingkat === 'X') {
-            matchTingkat = cleanK.startsWith('X') && !cleanK.startsWith('XI') && !cleanK.startsWith('XII');
-          }
+          const targetTingkat = filterTingkat.toUpperCase();
+          matchTingkat = cleanK === targetTingkat ||
+                         cleanK.startsWith(targetTingkat + '-') ||
+                         cleanK.startsWith(targetTingkat + ' ');
         }
 
         const matchJurusan = filterJurusan ? log.kelas.trim().toUpperCase().includes(filterJurusan.toUpperCase()) : true;
@@ -194,7 +246,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       absensiList
         .filter(log => {
           const matchBulan = log.bulan === selectedBulan;
-          const matchKelas = log.kelas === siswa.kelas; // strictly matches student's own class
+          const matchKelas = log.kelas.trim().toUpperCase() === siswa.kelas.trim().toUpperCase(); // strictly matches student's own class
           const matchMapel = filterMapel ? log.mataPelajaran === filterMapel : true;
           return matchBulan && matchKelas && matchMapel;
         })
@@ -204,7 +256,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       return !isHolidayDateStr(tanggal);
     });
 
-    const totalStudentClassMeetings = studentClassSessions.length || 3;
+    const totalStudentClassMeetings = filterMapel ? studentClassSessions.length : (studentClassSessions.length || 3);
 
     let sakit = 0;
     let izin = 0;
@@ -255,28 +307,135 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
     };
   });
 
+  // Compute detailed per-subject stats for each student
+  const rekapPerMapelData = classStudents.map((siswa, idx) => {
+    const subjectStats: { [mapelName: string]: { hadir: number; sakit: number; izin: number; alfa: number; total: number; detailStr: string } } = {};
+
+    availableMapels.forEach(m => {
+      // Get all logs of this student for this specific month and subject
+      const studentSubjectLogs = absensiList.filter(log => 
+        log.nis === siswa.nis && 
+        log.bulan === selectedBulan &&
+        log.mataPelajaran === m
+      );
+
+      // Unique session keys recorded for this student and subject
+      const studentSessions = new Set(
+        studentSubjectLogs.map(log => `${log.tanggal}_${log.jamKe || '1'}`)
+      );
+
+      // Unique active school sessions that occurred for this class, month, and subject
+      const classSessionsForSubject = Array.from(new Set(
+        absensiList
+          .filter(log => {
+            const matchBulan = log.bulan === selectedBulan;
+            const matchKelas = log.kelas.trim().toUpperCase() === siswa.kelas.trim().toUpperCase();
+            const matchMapel = log.mataPelajaran === m;
+            return matchBulan && matchKelas && matchMapel;
+          })
+          .map(log => `${log.tanggal}_${log.jamKe || '1'}`)
+      )).filter(sessionKey => {
+        const tanggal = sessionKey.split('_')[0];
+        return !isHolidayDateStr(tanggal);
+      });
+
+      let hadir = 0;
+      let sakit = 0;
+      let izin = 0;
+      let alfa = 0;
+
+      // Map student logs by their session keys
+      const logsBySession: { [sessionKey: string]: AbsenLog[] } = {};
+      studentSubjectLogs.forEach(log => {
+        const sessionKey = `${log.tanggal}_${log.jamKe || '1'}`;
+        if (!logsBySession[sessionKey]) {
+          logsBySession[sessionKey] = [];
+        }
+        logsBySession[sessionKey].push(log);
+      });
+
+      Object.entries(logsBySession).forEach(([sessionKey, logs]) => {
+        const tanggal = sessionKey.split('_')[0];
+        if (!isHolidayDateStr(tanggal)) {
+          const hasHadir = logs.some(l => l.status.startsWith('Hadir'));
+          const hasSakit = logs.some(l => l.status === 'Sakit');
+          const hasIzin = logs.some(l => l.status === 'Izin');
+          const hasAlfa = logs.some(l => l.status === 'Alfa');
+
+          if (hasHadir) hadir++;
+          else if (hasSakit) sakit++;
+          else if (hasIzin) izin++;
+          else if (hasAlfa) alfa++;
+        } else {
+          const hasHadir = logs.some(l => l.status.startsWith('Hadir'));
+          if (hasHadir) hadir++;
+        }
+      });
+
+      // Auto count Alfas if they missed recorded sessions for this class & subject
+      classSessionsForSubject.forEach(sessionKey => {
+        if (!logsBySession[sessionKey]) {
+          alfa++;
+        }
+      });
+
+      const totalMeetings = classSessionsForSubject.length;
+      subjectStats[m] = {
+        hadir,
+        sakit,
+        izin,
+        alfa,
+        total: totalMeetings,
+        detailStr: totalMeetings > 0 ? `${hadir}/${totalMeetings} (S:${sakit} I:${izin} A:${alfa})` : '-'
+      };
+    });
+
+    return {
+      no: idx + 1,
+      nis: siswa.nis,
+      nama: siswa.nama,
+      kelas: siswa.kelas,
+      subjectStats
+    };
+  });
+
   const downloadExcel = () => {
     if (isFutureMonthSelected) {
       alert("Maaf, Anda tidak dapat mengunduh data rekap bulanan untuk bulan di masa mendatang!");
       return;
     }
 
-    // Generate clean header and rows for sheet
-    const sheetData = rekapData.map(item => ({
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: Ringkasan S/I/A/H
+    const sheetDataRingkasan = rekapData.map(item => ({
       'No': item.no,
       'NISN': item.nis,
       'Nama Lengkap': item.nama,
-      'Kelas': item.kelas,
       'Sakit (S)': item.sakit,
       'Izin (I)': item.izin,
       'Alpa (A)': item.alfa,
       'Hadir (H)': item.hadir,
       'Total Pertemuan': item.totalPertemuan
     }));
+    const wsRingkasan = XLSX.utils.json_to_sheet(sheetDataRingkasan);
+    XLSX.utils.book_append_sheet(wb, wsRingkasan, "Ringkasan Absensi");
 
-    const ws = XLSX.utils.json_to_sheet(sheetData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Rekap Bulanan");
+    // Sheet 2: Detail Per-Mata Pelajaran
+    const sheetDataMapel = rekapPerMapelData.map(item => {
+      const row: any = {
+        'No': item.no,
+        'NISN': item.nis,
+        'Nama Lengkap': item.nama,
+      };
+      availableMapels.forEach(m => {
+        const stats = item.subjectStats[m];
+        row[m] = stats && stats.total > 0 ? stats.detailStr : '-';
+      });
+      return row;
+    });
+    const wsMapel = XLSX.utils.json_to_sheet(sheetDataMapel);
+    XLSX.utils.book_append_sheet(wb, wsMapel, "Detail Per Mapel");
 
     // Add extra reference sheet for holidays & Sundays list for teacher transparency
     if (scheduledHolidays.length > 0) {
@@ -289,19 +448,25 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       XLSX.utils.book_append_sheet(wb, wsHolidays, "Info Hari Libur");
     }
     
-    // Set column widths elegantly
-    const wscols = [
+    // Set column widths elegantly for Sheet 1
+    wsRingkasan['!cols'] = [
       { wch: 6 },
       { wch: 12 },
       { wch: 28 },
-      { wch: 12 },
       { wch: 10 },
       { wch: 10 },
       { wch: 10 },
       { wch: 10 },
       { wch: 16 }
     ];
-    ws['!cols'] = wscols;
+
+    // Set column widths elegantly for Sheet 2
+    wsMapel['!cols'] = [
+      { wch: 6 },
+      { wch: 12 },
+      { wch: 28 },
+      ...availableMapels.map(() => ({ wch: 20 }))
+    ];
 
     const fileSuffix = filterMapel ? `_${filterMapel.replace(/[^a-zA-Z0-9]/g, '_')}` : '';
     const fileName = `REKAP_ABSENSI_${selectedBulan.replace(' ', '_')}_${selectedKelas || 'SEMUA_KELAS'}${fileSuffix}.xlsx`;
@@ -348,10 +513,10 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
               className="bg-white border border-slate-200 text-slate-800 px-3 py-2 text-sm rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer font-semibold"
               id="rekap-tingkat-picker"
             >
-              <option value="">Semua Kelas</option>
-              <option value="X">Kelas X</option>
-              <option value="XI">Kelas XI</option>
-              <option value="XII">Kelas XII</option>
+              <option value="">Semua Tingkat</option>
+              {availableTingkats.map(t => (
+                <option key={t} value={t}>Kelas {t}</option>
+              ))}
             </select>
           </div>
 
@@ -367,9 +532,9 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
               id="rekap-jurusan-picker"
             >
               <option value="">Semua Jurusan</option>
-              <option value="ATPH">ATPH</option>
-              <option value="MPLB">MPLB</option>
-              <option value="TSM">TSM</option>
+              {availableJurusans.map(j => (
+                <option key={j} value={j}>{j}</option>
+              ))}
             </select>
           </div>
 
@@ -466,62 +631,151 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
         className="bg-white border border-slate-100 rounded-2xl shadow-sm p-6 overflow-hidden"
         id="rekap-table-card"
       >
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
             <h4 className="font-bold text-slate-800 text-lg">Lembar Rekapitulasi Presensi - {selectedBulan}</h4>
             <p className="text-slate-400 text-xs">Menyajikan rekam jejak bulanan kumulatif per-identitas murid (Hari Minggu & Libur dikecualikan).</p>
           </div>
-          <div className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs text-slate-500 font-medium">
-            <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
-            <span>S: Sakit, I: Izin, A: Alfa, H: Hadir</span>
+          
+          <div className="flex flex-wrap items-center gap-2">
+            {/* VIEW MODE TOGGLE BUTTONS */}
+            <div className="bg-slate-100 p-1 rounded-xl flex gap-1 no-print">
+              <button
+                onClick={() => setViewMode('ringkasan')}
+                className={`text-center px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  viewMode === 'ringkasan'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                id="rekap-toggle-ringkasan"
+              >
+                Ringkasan S/I/A/H
+              </button>
+              <button
+                onClick={() => setViewMode('mapel')}
+                className={`text-center px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  viewMode === 'mapel'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                id="rekap-toggle-mapel"
+              >
+                Detail Per Mata Pelajaran
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+              <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+              <span>{viewMode === 'ringkasan' ? 'S: Sakit, I: Izin, A: Alfa, H: Hadir' : 'Format: Hadir / Total Sesi'}</span>
+            </div>
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm text-slate-700">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-800 font-bold bg-slate-100/50">
-                <th className="py-3 px-4 text-center w-12">No</th>
-                <th className="py-3 px-4 w-28">NISN</th>
-                <th className="py-3 px-4">Nama Lengkap</th>
-                <th className="py-3 px-4 text-center w-24">Kelas</th>
-                <th className="py-3 px-4 text-center w-16 text-blue-700 bg-blue-50/50">S</th>
-                <th className="py-3 px-4 text-center w-16 text-amber-700 bg-amber-50/50">I</th>
-                <th className="py-3 px-4 text-center w-16 text-rose-700 bg-rose-50/50">A</th>
-                <th className="py-3 px-4 text-center w-16 text-emerald-700 bg-emerald-50/50">H</th>
-                <th className="py-3 px-4 text-center w-36">Total Pertemuan</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-              {isFutureMonthSelected ? (
-                <tr>
-                  <td colSpan={9} className="py-12 text-center text-rose-500 font-bold">
-                    [Akses Terkunci] Tidak dapat menampilkan data bulanan untuk tanggal/bulan di masa mendatang.
-                  </td>
+          {viewMode === 'ringkasan' ? (
+            <table className="w-full border-collapse text-left text-sm text-slate-700">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-800 font-bold bg-slate-100/50">
+                  <th className="py-3 px-4 text-center w-12">No</th>
+                  <th className="py-3 px-4 w-28">NISN</th>
+                  <th className="py-3 px-4">Nama Lengkap</th>
+                  <th className="py-3 px-4 text-center w-16 text-blue-700 bg-blue-50/50">S</th>
+                  <th className="py-3 px-4 text-center w-16 text-amber-700 bg-amber-50/50">I</th>
+                  <th className="py-3 px-4 text-center w-16 text-rose-700 bg-rose-50/50">A</th>
+                  <th className="py-3 px-4 text-center w-16 text-emerald-700 bg-emerald-50/50">H</th>
+                  <th className="py-3 px-4 text-center w-36">Total Pertemuan</th>
                 </tr>
-              ) : rekapData.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
-                    Tidak ada data murid yang sesuai dengan filter kelas.
-                  </td>
-                </tr>
-              ) : (
-                rekapData.map((item) => (
-                  <tr key={item.nis} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="py-3 px-4 text-center font-mono text-slate-400">{item.no}</td>
-                    <td className="py-3 px-4 font-mono text-slate-400">{item.nis}</td>
-                    <td className="py-3 px-4 font-bold text-slate-800">{item.nama}</td>
-                    <td className="py-3 px-4 text-center uppercase">{item.kelas}</td>
-                    <td className="py-3 px-4 text-center bg-blue-50/20 text-blue-600 font-bold">{item.sakit}</td>
-                    <td className="py-3 px-4 text-center bg-amber-50/20 text-amber-600 font-bold">{item.izin}</td>
-                    <td className="py-3 px-4 text-center bg-rose-50/20 text-rose-600 font-bold">{item.alfa}</td>
-                    <td className="py-3 px-4 text-center bg-emerald-50/20 text-emerald-600 font-bold">{item.hadir}</td>
-                    <td className="py-3 px-4 text-center text-slate-700 font-bold">{item.totalPertemuan} Pertemuan</td>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+                {isFutureMonthSelected ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-rose-500 font-bold">
+                      [Akses Terkunci] Tidak dapat menampilkan data bulanan untuk tanggal/bulan di masa mendatang.
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : rekapData.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-slate-400">
+                      Tidak ada data murid yang sesuai dengan filter kelas.
+                    </td>
+                  </tr>
+                ) : (
+                  rekapData.map((item) => (
+                    <tr key={item.nis} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-3 px-4 text-center font-mono text-slate-400">{item.no}</td>
+                      <td className="py-3 px-4 font-mono text-slate-400">{item.nis}</td>
+                      <td className="py-3 px-4 font-bold text-slate-800">{item.nama}</td>
+                      <td className="py-3 px-4 text-center bg-blue-50/20 text-blue-600 font-bold">{item.sakit}</td>
+                      <td className="py-3 px-4 text-center bg-amber-50/20 text-amber-600 font-bold">{item.izin}</td>
+                      <td className="py-3 px-4 text-center bg-rose-50/20 text-rose-600 font-bold">{item.alfa}</td>
+                      <td className="py-3 px-4 text-center bg-emerald-50/20 text-emerald-600 font-bold">{item.hadir}</td>
+                      <td className="py-3 px-4 text-center text-slate-700 font-bold">{item.totalPertemuan} Pertemuan</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full border-collapse text-left text-sm text-slate-700">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-800 font-bold bg-slate-100/50">
+                  <th className="py-3 px-4 text-center w-12">No</th>
+                  <th className="py-3 px-4 w-28">NISN</th>
+                  <th className="py-3 px-4 min-w-[150px]">Nama Lengkap</th>
+                  {availableMapels.map(m => (
+                    <th key={m} className="py-3 px-4 text-center min-w-[140px] text-indigo-700 bg-indigo-50/20 text-xs font-semibold" title={m}>
+                      {m.length > 20 ? `${m.substring(0, 18)}...` : m}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+                {isFutureMonthSelected ? (
+                  <tr>
+                    <td colSpan={3 + availableMapels.length} className="py-12 text-center text-rose-500 font-bold">
+                      [Akses Terkunci] Tidak dapat menampilkan data bulanan untuk tanggal/bulan di masa mendatang.
+                    </td>
+                  </tr>
+                ) : rekapPerMapelData.length === 0 ? (
+                  <tr>
+                    <td colSpan={3 + availableMapels.length} className="py-12 text-center text-slate-400">
+                      Tidak ada data murid yang sesuai dengan filter kelas.
+                    </td>
+                  </tr>
+                ) : (
+                  rekapPerMapelData.map((item) => (
+                    <tr key={item.nis} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-3 px-4 text-center font-mono text-slate-400">{item.no}</td>
+                      <td className="py-3 px-4 font-mono text-slate-400">{item.nis}</td>
+                      <td className="py-3 px-4 font-bold text-slate-800">{item.nama}</td>
+                      {availableMapels.map(m => {
+                        const stats = item.subjectStats[m];
+                        const hasMeetings = stats && stats.total > 0;
+                        return (
+                          <td key={m} className="py-3 px-4 text-center font-sans" title={`Hadir: ${stats?.hadir}/${stats?.total} | Sakit: ${stats?.sakit} | Izin: ${stats?.izin} | Alfa: ${stats?.alfa}`}>
+                            {hasMeetings ? (
+                              <div className="flex flex-col items-center justify-center gap-1">
+                                <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 whitespace-nowrap">
+                                  Hadir: {stats.hadir}/{stats.total}
+                                </span>
+                                <div className="flex items-center gap-1 text-[10px] font-bold">
+                                  <span className="px-1 py-0.2 rounded bg-blue-50 text-blue-600 border border-blue-100/60" title="Sakit">S:{stats.sakit}</span>
+                                  <span className="px-1 py-0.2 rounded bg-amber-50 text-amber-600 border border-amber-100/60" title="Izin">I:{stats.izin}</span>
+                                  <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-600 border border-rose-100/60" title="Alfa">A:{stats.alfa}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 font-bold text-xs">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </motion.div>
     </div>

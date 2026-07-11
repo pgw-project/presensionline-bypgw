@@ -59,7 +59,7 @@ export default function SiswaSection({
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthString());
 
-  const compressProfileImage = (base64Str: string, maxWidth = 250, maxHeight = 250, quality = 0.65): Promise<string> => {
+  const compressProfileImage = (base64Str: string, maxWidth = 150, maxHeight = 150, quality = 0.60): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.src = base64Str;
@@ -109,6 +109,7 @@ export default function SiswaSection({
     const reader = new FileReader();
     reader.onload = async () => {
       const base64Data = reader.result as string;
+      if (triggerToast) triggerToast('Mengompresi foto profil secara otomatis...', 'success');
       const compressedData = await compressProfileImage(base64Data);
       if (onPhotoUpload) {
         onPhotoUpload(compressedData);
