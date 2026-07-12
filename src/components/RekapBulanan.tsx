@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { CalendarDays, Download, HelpCircle, AlertTriangle, Info, Calendar } from 'lucide-react';
+import { CalendarDays, Download, HelpCircle, AlertTriangle, Info, Calendar, Percent } from 'lucide-react';
 import { Siswa, AbsenLog, Kelas, SystemHoliday } from '../types';
 import * as XLSX from 'xlsx';
 
@@ -386,7 +386,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
         izin,
         alfa,
         total: totalMeetings,
-        detailStr: totalMeetings > 0 ? `${hadir}/${totalMeetings} (S:${sakit} I:${izin} A:${alfa})` : '-'
+        detailStr: totalMeetings > 0 ? `${Math.round((hadir / totalMeetings) * 100)}% (${hadir}/${totalMeetings}) [S:${sakit} I:${izin} A:${alfa}]` : '-'
       };
     });
 
@@ -398,6 +398,33 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       subjectStats
     };
   });
+
+  const getSubjectAttendancePercentages = () => {
+    const percentages: { [mapelName: string]: { percentage: number; totalHadir: number; totalMeetings: number } } = {};
+    
+    availableMapels.forEach(m => {
+      let sumHadir = 0;
+      let sumTotal = 0;
+      
+      rekapPerMapelData.forEach(item => {
+        const stats = item.subjectStats[m];
+        if (stats && stats.total > 0) {
+          sumHadir += stats.hadir;
+          sumTotal += stats.total;
+        }
+      });
+      
+      percentages[m] = {
+        percentage: sumTotal > 0 ? Math.round((sumHadir / sumTotal) * 100) : 0,
+        totalHadir: sumHadir,
+        totalMeetings: sumTotal
+      };
+    });
+    
+    return percentages;
+  };
+
+  const subjectPercentages = getSubjectAttendancePercentages();
 
   const downloadExcel = () => {
     if (isFutureMonthSelected) {
@@ -434,6 +461,19 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       });
       return row;
     });
+
+    // Append overall percentage row to Excel sheet data
+    const percentRow: any = {
+      'No': '',
+      'NISN': '',
+      'Nama Lengkap': 'Rata-Rata Kehadiran (%)',
+    };
+    availableMapels.forEach(m => {
+      const stats = subjectPercentages[m];
+      percentRow[m] = stats && stats.totalMeetings > 0 ? `${stats.percentage}% (${stats.totalHadir}/${stats.totalMeetings})` : '-';
+    });
+    sheetDataMapel.push(percentRow);
+
     const wsMapel = XLSX.utils.json_to_sheet(sheetDataMapel);
     XLSX.utils.book_append_sheet(wb, wsMapel, "Detail Per Mapel");
 
@@ -625,6 +665,71 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
         </div>
       )}
 
+      {/* PERSENTASE KEHADIRAN PER MATA PELAJARAN WIDGET */}
+      {!isFutureMonthSelected && availableMapels.length > 0 && rekapPerMapelData.length > 0 && (
+        <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-xl border border-indigo-100/60 shadow-sm">
+                <Percent className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-800 text-sm">Ringkasan Persentase Kehadiran per Mata Pelajaran</h4>
+                <p className="text-slate-400 text-[11px]">Rata-rata persentase kehadiran seluruh siswa per mata pelajaran di bulan {selectedBulan}.</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {availableMapels.map(m => {
+              const stats = subjectPercentages[m];
+              const hasData = stats && stats.totalMeetings > 0;
+              const pct = hasData ? stats.percentage : 0;
+              
+              return (
+                <div key={m} className="bg-slate-50/50 border border-slate-150 rounded-2xl p-4 flex flex-col justify-between hover:shadow-md transition-all duration-300">
+                  <span className="text-[11px] font-bold text-slate-500 truncate block uppercase tracking-tight" title={m}>
+                    {m}
+                  </span>
+                  
+                  <div className="mt-3 flex items-baseline gap-1">
+                    {hasData ? (
+                      <>
+                        <span className={`text-2xl font-black tracking-tight ${
+                          pct >= 90 ? 'text-emerald-600' : pct >= 75 ? 'text-amber-600' : 'text-rose-600'
+                        }`}>
+                          {pct}%
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">hadir</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 text-xs font-bold">Belum ada sesi</span>
+                    )}
+                  </div>
+                  
+                  {hasData && (
+                    <div className="mt-2.5 space-y-1.5">
+                      {/* Visual progress bar */}
+                      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            pct >= 90 ? 'bg-emerald-500' : pct >= 75 ? 'bg-amber-500' : 'bg-rose-500'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] text-slate-400 block font-medium">
+                        {stats.totalHadir} dari {stats.totalMeetings} log presensi
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -751,14 +856,24 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
                       {availableMapels.map(m => {
                         const stats = item.subjectStats[m];
                         const hasMeetings = stats && stats.total > 0;
+                        const pct = hasMeetings ? Math.round((stats.hadir / stats.total) * 100) : 0;
                         return (
-                          <td key={m} className="py-3 px-4 text-center font-sans" title={`Hadir: ${stats?.hadir}/${stats?.total} | Sakit: ${stats?.sakit} | Izin: ${stats?.izin} | Alfa: ${stats?.alfa}`}>
+                          <td key={m} className="py-3 px-4 text-center font-sans border-r border-slate-100 last:border-r-0" title={`Hadir: ${stats?.hadir}/${stats?.total} (${pct}%) | Sakit: ${stats?.sakit} | Izin: ${stats?.izin} | Alfa: ${stats?.alfa}`}>
                             {hasMeetings ? (
                               <div className="flex flex-col items-center justify-center gap-1">
-                                <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 whitespace-nowrap">
+                                <span className={`text-xs font-black px-2 py-0.5 rounded-full border whitespace-nowrap ${
+                                  pct >= 90
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                    : pct >= 75
+                                    ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                    : 'bg-rose-50 text-rose-700 border-rose-100'
+                                }`}>
+                                  {pct}%
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-bold">
                                   Hadir: {stats.hadir}/{stats.total}
                                 </span>
-                                <div className="flex items-center gap-1 text-[10px] font-bold">
+                                <div className="flex items-center gap-1 text-[9px] font-bold">
                                   <span className="px-1 py-0.2 rounded bg-blue-50 text-blue-600 border border-blue-100/60" title="Sakit">S:{stats.sakit}</span>
                                   <span className="px-1 py-0.2 rounded bg-amber-50 text-amber-600 border border-amber-100/60" title="Izin">I:{stats.izin}</span>
                                   <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-600 border border-rose-100/60" title="Alfa">A:{stats.alfa}</span>
@@ -774,6 +889,41 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
                   ))
                 )}
               </tbody>
+              {!isFutureMonthSelected && rekapPerMapelData.length > 0 && (
+                <tfoot>
+                  <tr className="bg-indigo-50/20 border-t border-slate-200 font-bold text-slate-800">
+                    <td colSpan={3} className="py-4 px-4 text-right font-extrabold text-indigo-950 bg-slate-50/60">
+                      Rata-Rata Kehadiran (%)
+                    </td>
+                    {availableMapels.map(m => {
+                      const stats = subjectPercentages[m];
+                      const hasData = stats && stats.totalMeetings > 0;
+                      return (
+                        <td key={m} className="py-4 px-4 text-center bg-slate-50/60">
+                          {hasData ? (
+                            <div className="flex flex-col items-center justify-center">
+                              <span className={`text-xs font-black px-2.5 py-1 rounded-xl border ${
+                                stats.percentage >= 90
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-200 shadow-sm'
+                                  : stats.percentage >= 75
+                                  ? 'bg-amber-100 text-amber-800 border-amber-200 shadow-sm'
+                                  : 'bg-rose-100 text-rose-800 border-rose-200 shadow-sm'
+                              }`}>
+                                {stats.percentage}%
+                              </span>
+                              <span className="text-[9px] text-slate-450 mt-1 font-bold">
+                                ({stats.totalHadir}/{stats.totalMeetings} Sesi)
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-350 font-bold text-xs">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tfoot>
+              )}
             </table>
           )}
         </div>

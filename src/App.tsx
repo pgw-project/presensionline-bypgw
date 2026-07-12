@@ -514,6 +514,9 @@ export default function App() {
   const [activeSessionTingkat, setActiveSessionTingkat] = useState<string>('');
   const [activeSessionJurusan, setActiveSessionJurusan] = useState<string>('');
   const [activeSessionJamKe, setActiveSessionJamKe] = useState<string>('1');
+  const [ignoreSchoolHours, setIgnoreSchoolHours] = useState<boolean>(() => {
+    return localStorage.getItem('ignore-school-hours') !== 'false';
+  });
 
   // Server Admin Center internal states
   const [resetUserRole, setResetUserRole] = useState<'siswa' | 'guru'>('guru');
@@ -947,6 +950,7 @@ export default function App() {
   };
 
   const isWithinSchoolHours = () => {
+    if (ignoreSchoolHours) return true;
     const isAdmin = appState.currentUser?.role === 'admin' || appState.currentUser?.username === 'admin';
     if (isAdmin) return true;
 
@@ -3324,8 +3328,8 @@ export default function App() {
                             <select
                               value={activeSessionJurusan}
                               onChange={(e) => {
-                                setActiveSessionJurusan(e.target.value);
-                                triggerToast(`Target jurusan diubah ke: ${e.target.value || 'Semua Jurusan'}`);
+                                  setActiveSessionJurusan(e.target.value);
+                                  triggerToast(`Target jurusan diubah ke: ${e.target.value || 'Semua Jurusan'}`);
                               }}
                               className="w-full bg-slate-900/40 border border-white/15 rounded-xl px-3 py-2.5 text-sm text-white font-semibold focus:outline-none focus:ring-2 focus:ring-white/50 transition-all cursor-pointer"
                             >
@@ -3344,8 +3348,8 @@ export default function App() {
                             <select
                               value={activeSessionJamKe}
                               onChange={(e) => {
-                                setActiveSessionJamKe(e.target.value);
-                                triggerToast(`Target Jam Ke diubah ke: Jam ${e.target.value}`);
+                                  setActiveSessionJamKe(e.target.value);
+                                  triggerToast(`Target Jam Ke diubah ke: Jam ${e.target.value}`);
                               }}
                               className="w-full bg-slate-900/40 border border-white/15 rounded-xl px-3 py-2.5 text-sm text-white font-semibold focus:outline-none focus:ring-2 focus:ring-white/50 transition-all cursor-pointer font-mono"
                             >
