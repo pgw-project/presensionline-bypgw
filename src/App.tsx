@@ -64,7 +64,7 @@ import SiswaSection from './components/SiswaSection';
 import ScannerComponent from './components/ScannerComponent';
 import LaporanHarian from './components/LaporanHarian';
 import RekapBulanan from './components/RekapBulanan';
-import KenaikanKelas from './components/KenaikanKelas';
+import KenaikanKelas, { isClassMatch, parseTingkat, replaceTingkat } from './components/KenaikanKelas';
 
 export const MAPEL_OPTIONS = [
   'Matematika',
@@ -1612,22 +1612,24 @@ export default function App() {
   };
 
   // Mass Promotion Execution Callback
-  const handleMassMigration = (source: string, dest: string) => {
+  const handleMassMigration = (sourceTingkat: string, destTingkat: string) => {
     appState.siswa.forEach(s => {
-      if (s.status === 'Aktif' && s.kelas === source) {
-        dbSaveSiswa(activeSchoolId || '', { ...s, kelas: dest });
+      if (s.status === 'Aktif' && parseTingkat(s.kelas) === sourceTingkat) {
+        const newKelasName = replaceTingkat(s.kelas, sourceTingkat, destTingkat);
+        dbSaveSiswa(activeSchoolId || '', { ...s, kelas: newKelasName });
       }
     });
     setAppState(prev => ({
       ...prev,
       siswa: prev.siswa.map(s => {
-        if (s.status === 'Aktif' && s.kelas === source) {
-          return { ...s, kelas: dest };
+        if (s.status === 'Aktif' && parseTingkat(s.kelas) === sourceTingkat) {
+          const newKelasName = replaceTingkat(s.kelas, sourceTingkat, destTingkat);
+          return { ...s, kelas: newKelasName };
         }
         return s;
       })
     }));
-    triggerToast(`Berhasil menonaktifkan relasi kelas lama dan memindahkan siswa ke ${dest}.`);
+    triggerToast(`Berhasil menaikkan tingkat siswa dari ${sourceTingkat} ke ${destTingkat}.`);
   };
 
   // DATA EXCEL EXPORT HELPERS (DIRECT TABLES EXPORTS)
@@ -2047,6 +2049,19 @@ export default function App() {
   // Today log list calculations
   const todayDateStr = new Date().toISOString().split('T')[0];
   const todayLogs = restrictedAbsensiList.filter(l => l.tanggal === todayDateStr);
+
+  // Filtered log list for Manage Attendance (Kelola Log Absen) menu.
+  // Displays logs up to 6:00 AM of the next day, then resets automatically.
+  const kelolaAbsensiList = restrictedAbsensiList.filter(log => {
+    try {
+      if (!log.tanggal) return true;
+      const deadlineDate = new Date(`${log.tanggal}T06:00:00`);
+      deadlineDate.setDate(deadlineDate.getDate() + 1);
+      return new Date().getTime() < deadlineDate.getTime();
+    } catch (e) {
+      return true;
+    }
+  });
 
   const totalRegisteredSiswa = restrictedSiswaList.filter(s => s.status === 'Aktif').length;
   const totalGuru = appState.guru.filter(g => isServerAdmin(appState.currentUser) || !isServerAdmin({ username: g.nip })).length;
@@ -4601,7 +4616,12 @@ export default function App() {
                     <div className="flex justify-between items-center gap-4">
                       <div>
                         <h2 className="text-xl font-black text-slate-900 tracking-tight">Kelola Log Kehadiran Siswa</h2>
-                        <p className="text-slate-500 text-xs mt-0.5">Penghapusan, revisi data log masuk, atau penulisan absen manual mandiri.</p>
+                        <p className="text-slate-500 text-xs mt-0.5 flex flex-wrap items-center gap-2">
+                          <span>Penghapusan, revisi data log masuk, atau penulisan absen manual mandiri.</span>
+                          <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-150 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
+                            ⚠️ Daftar Otomatis Reset Pukul 06:00 Pagi Setiap Hari
+                          </span>
+                        </p>
                       </div>
                       <button
                         onClick={() => {
@@ -4639,14 +4659,14 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {restrictedAbsensiList.length === 0 ? (
+                            {kelolaAbsensiList.length === 0 ? (
                               <tr>
-                                <td colSpan={10} className="py-12 text-center text-slate-400">
-                                  Belum ada rekaman log presensi.
+                                <td colSpan={10} className="py-12 text-center text-slate-400 font-medium">
+                                  Belum ada rekaman log presensi aktif hari ini.
                                 </td>
                               </tr>
                             ) : (
-                              restrictedAbsensiList.map((log, idx) => (
+                              kelolaAbsensiList.map((log, idx) => (
                                 <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
                                   <td className="py-3 px-4 text-center text-slate-400 font-mono">{idx + 1}</td>
                                   <td className="py-3 px-4 font-mono text-xs text-slate-500">

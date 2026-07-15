@@ -3,37 +3,174 @@ import { motion } from 'motion/react';
 import { Sparkles, ArrowRight, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Kelas, Siswa } from '../types';
 
+export const parseTingkat = (className: string): string => {
+  if (!className) return '';
+  const clean = className.trim();
+
+  // Check if it has "Kelas <Something>"
+  const kelasMatch = clean.match(/^kelas\s+([^\s\-]+)/i);
+  if (kelasMatch) {
+    return `Kelas ${kelasMatch[1].toUpperCase()}`;
+  }
+
+  // Check Roman Numerals at the beginning (e.g. XII-RPL-1 -> XII, X -> X)
+  const romanMatch = clean.match(/^(XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)\b/i);
+  if (romanMatch) {
+    return romanMatch[1].toUpperCase();
+  }
+
+  // Check Arabic Numerals at the beginning (e.g. 10 RPL 1 -> 10, 1 -> 1)
+  const numMatch = clean.match(/^(\d+)\b/);
+  if (numMatch) {
+    return numMatch[1];
+  }
+
+  // Fallback to the first word/segment split by spaces or hyphens
+  const firstWord = clean.split(/[\s\-]+/)[0];
+  return firstWord ? firstWord.toUpperCase() : clean.toUpperCase();
+};
+
+export const replaceTingkat = (className: string, sourceTingkat: string, destTingkat: string): string => {
+  if (!className) return '';
+  const clean = className.trim();
+  const sTingkat = sourceTingkat.trim();
+  const dTingkat = destTingkat.trim();
+
+  // If the class name starts with the exact sourceTingkat (case-insensitive)
+  if (clean.toUpperCase().startsWith(sTingkat.toUpperCase())) {
+    return dTingkat + clean.slice(sTingkat.length);
+  }
+
+  const sTingkatOnly = sTingkat.replace(/^kelas\s+/i, '').trim().toUpperCase();
+  const dTingkatOnly = dTingkat.replace(/^kelas\s+/i, '').trim().toUpperCase();
+
+  const kelasPrefixMatch = clean.match(/^kelas\s+/i);
+  if (kelasPrefixMatch) {
+    const prefix = kelasPrefixMatch[0]; // e.g. "Kelas "
+    const remaining = clean.slice(prefix.length).trim();
+    if (remaining.toUpperCase().startsWith(sTingkatOnly)) {
+      return `${prefix}${dTingkatOnly}${remaining.slice(sTingkatOnly.length)}`;
+    }
+  }
+
+  // Otherwise, do a case-insensitive replacement of the first occurrence
+  const regex = new RegExp(sTingkat, 'i');
+  return clean.replace(regex, destTingkat);
+};
+
+export const isClassMatch = (studentClass: string, selectedClass: string): boolean => {
+  if (!studentClass || !selectedClass) return false;
+
+  const sClean = studentClass.trim().toUpperCase();
+  const selClean = selectedClass.trim().toUpperCase();
+
+  if (sClean === selClean) return true;
+
+  const normalize = (val: string) => val.replace(/[^A-Z0-9]/g, '');
+  const sNorm = normalize(sClean);
+  const selNorm = normalize(selClean);
+
+  if (sNorm === selNorm) return true;
+
+  // Protect Roman Numerals (e.g. X, XI, XII shouldn't mismatch)
+  const getRomanNumerals = (str: string): string[] => {
+    return (str.toUpperCase().match(/\b(X|XI|XII|IX|V|IV|I|II|III|VIII|VII|VI)\b/g) || []);
+  };
+  const romS = getRomanNumerals(studentClass);
+  const romSel = getRomanNumerals(selectedClass);
+  if (romS.length > 0 && romSel.length > 0) {
+    const matchRom = romS.some(r => romSel.includes(r)) || romSel.some(r => romS.includes(r));
+    if (!matchRom) return false;
+  }
+
+  // Protect regular numbers (e.g. "Kelas 1" shouldn't match "Kelas 10")
+  const numS = studentClass.match(/\d+/g);
+  const numSel = selectedClass.match(/\d+/g);
+  if (numS && numSel) {
+    const matchNum = numS.some(n => numSel.includes(n)) || numSel.some(n => numS.includes(n));
+    if (!matchNum) return false;
+  }
+
+  // Split and compare parts
+  const getBaseParts = (name: string): string[] => {
+    return name.toUpperCase()
+      .split(/[\s\-\/(),]+/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0 && p !== 'MAPEL' && p !== 'KELAS' && p !== 'JURUSAN');
+  };
+
+  const sParts = getBaseParts(studentClass);
+  const selParts = getBaseParts(selectedClass);
+
+  if (sParts.length > 0 && selParts.length > 0) {
+    const allStudentPartsInSelected = sParts.every(sp => selParts.includes(sp));
+    const allSelectedPartsInStudent = selParts.every(selp => sParts.includes(selp));
+    if (allStudentPartsInSelected || allSelectedPartsInStudent) {
+      return true;
+    }
+  }
+
+  // Safe fallback comparison
+  if (sNorm.includes(selNorm) || selNorm.includes(sNorm)) {
+    return true;
+  }
+
+  return false;
+};
+
 interface KenaikanKelasProps {
   kelasList: Kelas[];
   siswaList: Siswa[];
-  onMigrate: (sourceKelas: string, destKelas: string) => void;
+  onMigrate: (sourceTingkat: string, destTingkat: string) => void;
 }
 
 export default function KenaikanKelas({ kelasList, siswaList, onMigrate }: KenaikanKelasProps) {
-  const [sourceKelas, setSourceKelas] = useState<string>('');
-  const [destKelas, setDestKelas] = useState<string>('');
+  const [sourceTingkat, setSourceTingkat] = useState<string>('');
+  const [destTingkat, setDestTingkat] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [showConfirm, setShowConfirm] = useState<boolean>(false);
 
-  const countStudents = siswaList.filter(s => s.kelas === sourceKelas && s.status === 'Aktif').length;
+  // Ambil list tingkat kelas yang unik dari data kelas dan data murid
+  const uniqueTingkatList = Array.from(
+    new Set([
+      ...kelasList.map(k => parseTingkat(k.namaKelas)),
+      ...siswaList.map(s => parseTingkat(s.kelas))
+    ])
+  ).filter(Boolean).sort((a, b) => {
+    const aClean = a.replace(/^kelas\s+/i, '').trim();
+    const bClean = b.replace(/^kelas\s+/i, '').trim();
+    const romanOrder = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+    const idxA = romanOrder.indexOf(aClean.toUpperCase());
+    const idxB = romanOrder.indexOf(bClean.toUpperCase());
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    
+    const numA = parseInt(aClean, 10);
+    const numB = parseInt(bClean, 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return a.localeCompare(b);
+  });
+
+  const countStudents = siswaList.filter(s => s.status === 'Aktif' && parseTingkat(s.kelas) === sourceTingkat).length;
 
   const handleMigrate = () => {
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!sourceKelas || !destKelas) {
-      setErrorMsg('Pilih kelas asal dan kelas tujuan terlebih dahulu!');
+    if (!sourceTingkat || !destTingkat) {
+      setErrorMsg('Pilih tingkat asal dan tingkat baru terlebih dahulu!');
       return;
     }
 
-    if (sourceKelas === destKelas) {
-      setErrorMsg('Kelas asal dan kelas tujuan tidak boleh sama!');
+    if (sourceTingkat === destTingkat) {
+      setErrorMsg('Tingkat asal dan tingkat tujuan tidak boleh sama!');
       return;
     }
 
     if (countStudents === 0) {
-      setErrorMsg(`Tidak ada murid aktif di kelas ${sourceKelas} yang bisa dimigrasi.`);
+      setErrorMsg(`Tidak ada murid aktif di tingkat ${sourceTingkat} yang bisa dinaikkan kelas.`);
       return;
     }
 
@@ -41,10 +178,10 @@ export default function KenaikanKelas({ kelasList, siswaList, onMigrate }: Kenai
   };
 
   const executeMigration = () => {
-    onMigrate(sourceKelas, destKelas);
-    setSuccessMsg(`Migrasi Massal Selesai! Berhasil menaikkan ${countStudents} siswa dari ${sourceKelas} ke ${destKelas}.`);
-    setSourceKelas('');
-    setDestKelas('');
+    onMigrate(sourceTingkat, destTingkat);
+    setSuccessMsg(`Kenaikan Kelas Selesai! Berhasil menaikkan ${countStudents} siswa dari tingkat ${sourceTingkat} ke tingkat ${destTingkat}.`);
+    setSourceTingkat('');
+    setDestTingkat('');
     setShowConfirm(false);
   };
 
@@ -77,39 +214,43 @@ export default function KenaikanKelas({ kelasList, siswaList, onMigrate }: Kenai
         <div className="space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Kelas Asal (Tingkat Lama)</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Pilih Tingkat Kelas Asal</label>
               <select
-                value={sourceKelas}
-                onChange={(e) => setSourceKelas(e.target.value)}
+                value={sourceTingkat}
+                onChange={(e) => setSourceTingkat(e.target.value)}
                 className="w-full text-sm bg-white border border-slate-200 text-slate-800 px-3.5 py-2.5 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer"
                 id="kk-select-source"
               >
-                <option value="">-- Pilih Kelas Asal --</option>
-                {kelasList.map(k => (
-                  <option key={k.namaKelas} value={k.namaKelas}>{k.namaKelas}</option>
+                <option value="">-- Pilih Tingkat Asal --</option>
+                {uniqueTingkatList.map((tingkat) => (
+                  <option key={`source-${tingkat}`} value={tingkat}>
+                    {tingkat}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Kelas Tujuan (Tingkat Baru)</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Pilih Tingkat Kelas Baru</label>
               <select
-                value={destKelas}
-                onChange={(e) => setDestKelas(e.target.value)}
+                value={destTingkat}
+                onChange={(e) => setDestTingkat(e.target.value)}
                 className="w-full text-sm bg-white border border-slate-200 text-slate-800 px-3.5 py-2.5 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer"
                 id="kk-select-dest"
               >
-                <option value="">-- Pilih Kelas Tujuan --</option>
-                {kelasList.map(k => (
-                  <option key={k.namaKelas} value={k.namaKelas}>{k.namaKelas}</option>
+                <option value="">-- Pilih Tingkat Baru --</option>
+                {uniqueTingkatList.map((tingkat) => (
+                  <option key={`dest-${tingkat}`} value={tingkat}>
+                    {tingkat}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {sourceKelas && (
+          {sourceTingkat && (
             <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-center text-xs text-slate-600">
-              Siswa aktif yang terdeteksi di kelas <span className="font-bold text-emerald-700">{sourceKelas}</span>: <span className="font-bold text-slate-800 text-sm">{countStudents}</span> orang.
+              Siswa aktif yang terdeteksi di tingkat <span className="font-bold text-emerald-700">{sourceTingkat}</span>: <span className="font-bold text-slate-800 text-sm">{countStudents}</span> orang.
             </div>
           )}
 
@@ -128,9 +269,9 @@ export default function KenaikanKelas({ kelasList, siswaList, onMigrate }: Kenai
 
           <button
             onClick={handleMigrate}
-            disabled={!sourceKelas || !destKelas}
+            disabled={!sourceTingkat || !destTingkat}
             className={`w-full py-3 px-4 font-semibold text-sm rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm ${
-              (!sourceKelas || !destKelas)
+              (!sourceTingkat || !destTingkat)
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white hover:shadow-emerald-100'
             }`}
@@ -157,7 +298,7 @@ export default function KenaikanKelas({ kelasList, siswaList, onMigrate }: Kenai
             <div className="space-y-1.5">
               <h3 className="font-bold text-slate-800 text-base">Konfirmasi Kenaikan Kelas</h3>
               <p className="text-slate-500 text-xs leading-relaxed">
-                Apakah Anda yakin ingin memindahkan seluruh siswa aktif ({countStudents} orang) dari kelas <span className="font-bold text-emerald-600">{sourceKelas}</span> ke kelas <span className="font-bold text-emerald-600">{destKelas}</span>? Tindakan ini bernilai administratif massal harian.
+                Apakah Anda yakin ingin memindahkan seluruh siswa aktif ({countStudents} orang) dari tingkat <span className="font-bold text-emerald-600">{sourceTingkat}</span> ke tingkat <span className="font-bold text-emerald-600">{destTingkat}</span>? Tindakan ini bernilai administratif massal harian.
               </p>
             </div>
 
@@ -182,3 +323,4 @@ export default function KenaikanKelas({ kelasList, siswaList, onMigrate }: Kenai
     </div>
   );
 }
+
