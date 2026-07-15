@@ -577,7 +577,7 @@ export default function SiswaSection({
   };
 
   // PDF generator for Rekap Bulanan
-  const handleDownloadRekapBulananPDF = (targetMonth: string, filteredLogs: AbsenLog[], monthlyStats: { hadir: number, sakit: number, izin: number, alfa: number }) => {
+  const handleDownloadRekapBulananPDF = (targetMonth: string, filteredLogs: AbsenLog[], monthlyStats: { hadir: number, sakit: number, izin: number, bolos: number, alfa: number }) => {
     try {
       if (triggerToast) {
         triggerToast("Menyusun Rekap Bulanan PDF...", "warning");
@@ -667,7 +667,7 @@ export default function SiswaSection({
       y += 5;
 
       // STATISTIC TILES
-      const boxW = 38;
+      const boxW = 30;
       const boxH = 14;
       const boxSpacing = 5;
 
@@ -678,7 +678,7 @@ export default function SiswaSection({
       doc.setFontSize(8);
       doc.setTextColor(4, 120, 87);
       doc.text("HADIR", margin + 3, y + 4.5);
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.text(`${monthlyStats.hadir} Sesi`, margin + 3, y + 10.5);
 
       // Tile 2: Sakit
@@ -688,7 +688,7 @@ export default function SiswaSection({
       doc.setFontSize(8);
       doc.setTextColor(37, 99, 235);
       doc.text("SAKIT", margin + boxW + boxSpacing + 3, y + 4.5);
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.text(`${monthlyStats.sakit} Sesi`, margin + boxW + boxSpacing + 3, y + 10.5);
 
       // Tile 3: Izin
@@ -698,18 +698,28 @@ export default function SiswaSection({
       doc.setFontSize(8);
       doc.setTextColor(217, 119, 6);
       doc.text("IZIN", margin + (boxW + boxSpacing) * 2 + 3, y + 4.5);
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.text(`${monthlyStats.izin} Sesi`, margin + (boxW + boxSpacing) * 2 + 3, y + 10.5);
 
-      // Tile 4: Alfa
-      doc.setFillColor(255, 241, 242); // rose-50
+      // Tile 4: Bolos
+      doc.setFillColor(243, 232, 255); // purple-50
       doc.rect(margin + (boxW + boxSpacing) * 3, y, boxW, boxH, "F");
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8);
+      doc.setTextColor(147, 51, 234); // purple-600
+      doc.text("BOLOS", margin + (boxW + boxSpacing) * 3 + 3, y + 4.5);
+      doc.setFontSize(11);
+      doc.text(`${monthlyStats.bolos} Sesi`, margin + (boxW + boxSpacing) * 3 + 3, y + 10.5);
+
+      // Tile 5: Alfa
+      doc.setFillColor(255, 241, 242); // rose-50
+      doc.rect(margin + (boxW + boxSpacing) * 4, y, boxW, boxH, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
       doc.setTextColor(225, 29, 72);
-      doc.text("ALPA", margin + (boxW + boxSpacing) * 3 + 3, y + 4.5);
-      doc.setFontSize(12);
-      doc.text(`${monthlyStats.alfa} Sesi`, margin + (boxW + boxSpacing) * 3 + 3, y + 10.5);
+      doc.text("ALPA", margin + (boxW + boxSpacing) * 4 + 3, y + 4.5);
+      doc.setFontSize(11);
+      doc.text(`${monthlyStats.alfa} Sesi`, margin + (boxW + boxSpacing) * 4 + 3, y + 10.5);
 
       y += 22;
 
@@ -970,6 +980,7 @@ export default function SiswaSection({
             const countHadir = sortedLogs.filter((l) => l.status.startsWith('Hadir')).length;
             const countSakit = sortedLogs.filter((l) => l.status === 'Sakit').length;
             const countIzin = sortedLogs.filter((l) => l.status === 'Izin').length;
+            const countBolos = sortedLogs.filter((l) => l.status === 'Bolos').length;
             const countAlfa = sortedLogs.filter((l) => l.status === 'Alfa').length;
 
             return (
@@ -991,7 +1002,7 @@ export default function SiswaSection({
                 </div>
 
                 {/* Indikator stats kecil */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                   <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-2xl flex items-center justify-between">
                     <div>
                       <span className="text-[10px] font-bold text-emerald-700 block uppercase tracking-wider">Hadir</span>
@@ -1019,6 +1030,16 @@ export default function SiswaSection({
                     </div>
                     <div className="w-8 h-8 bg-amber-100 text-amber-800 rounded-lg flex items-center justify-center font-bold text-xs">
                       I
+                    </div>
+                  </div>
+
+                  <div className="bg-purple-50/50 border border-purple-100 p-4 rounded-2xl flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-purple-700 block uppercase tracking-wider">Bolos</span>
+                      <span className="text-xl font-black text-slate-900 mt-0.5 block">{countBolos} Sesi</span>
+                    </div>
+                    <div className="w-8 h-8 bg-purple-100 text-purple-800 rounded-lg flex items-center justify-center font-bold text-xs">
+                      B
                     </div>
                   </div>
 
@@ -1098,6 +1119,8 @@ export default function SiswaSection({
                                         ? 'bg-blue-50 border-blue-200 text-blue-800'
                                         : log.status === 'Izin'
                                         ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                        : log.status === 'Bolos'
+                                        ? 'bg-purple-50 border-purple-200 text-purple-800'
                                         : 'bg-rose-50 border-rose-200 text-rose-800'
                                     }`}
                                   >
@@ -1253,6 +1276,8 @@ export default function SiswaSection({
                                         ? 'bg-blue-50 border-blue-200 text-blue-800'
                                         : log.status === 'Izin'
                                         ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                        : log.status === 'Bolos'
+                                        ? 'bg-purple-50 border-purple-200 text-purple-800'
                                         : 'bg-rose-50 border-rose-200 text-rose-800'
                                     }`}
                                   >
@@ -1291,6 +1316,7 @@ export default function SiswaSection({
               hadir: monthlyLogs.filter(log => log.status.startsWith('Hadir')).length,
               sakit: monthlyLogs.filter(log => log.status === 'Sakit').length,
               izin: monthlyLogs.filter(log => log.status === 'Izin').length,
+              bolos: monthlyLogs.filter(log => log.status === 'Bolos').length,
               alfa: monthlyLogs.filter(log => log.status === 'Alfa').length,
             };
 
@@ -1342,7 +1368,7 @@ export default function SiswaSection({
                 </div>
 
                 {/* STATS TILES */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 font-sans">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 font-sans">
                   <div className="bg-emerald-50/55 border border-emerald-100 p-4 rounded-xl flex items-center justify-between">
                     <div>
                       <span className="text-[10px] font-bold text-emerald-700 block uppercase tracking-wider">Hadir</span>
@@ -1365,6 +1391,14 @@ export default function SiswaSection({
                       <span className="text-lg font-black text-slate-900 mt-0.5 block">{monthlyStats.izin} Sesi</span>
                     </div>
                     <div className="w-7 h-7 bg-amber-100 text-amber-800 rounded-lg flex items-center justify-center font-bold text-xs">I</div>
+                  </div>
+
+                  <div className="bg-purple-50/55 border border-purple-100 p-4 rounded-xl flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-purple-700 block uppercase tracking-wider">Bolos</span>
+                      <span className="text-lg font-black text-slate-900 mt-0.5 block">{monthlyStats.bolos} Sesi</span>
+                    </div>
+                    <div className="w-7 h-7 bg-purple-100 text-purple-800 rounded-lg flex items-center justify-center font-bold text-xs">B</div>
                   </div>
 
                   <div className="bg-rose-50/55 border border-rose-100 p-4 rounded-xl flex items-center justify-between">
@@ -1439,6 +1473,8 @@ export default function SiswaSection({
                                         ? 'bg-blue-50 border-blue-200 text-blue-800'
                                         : log.status === 'Izin'
                                         ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                        : log.status === 'Bolos'
+                                        ? 'bg-purple-50 border-purple-200 text-purple-800'
                                         : 'bg-rose-50 border-rose-200 text-rose-800'
                                     }`}
                                   >

@@ -4676,6 +4676,8 @@ export default function App() {
                                         ? 'bg-blue-50 text-blue-700 border-blue-100'
                                         : log.status === 'Izin'
                                         ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                        : log.status === 'Bolos'
+                                        ? 'bg-purple-50 text-purple-700 border-purple-100'
                                         : 'bg-rose-50 text-rose-700 border-rose-100'
                                     }`}>
                                       {log.status}
@@ -4879,6 +4881,8 @@ export default function App() {
                                         ? 'bg-blue-50 text-blue-700 border-blue-100'
                                         : log.status === 'Izin'
                                         ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                        : log.status === 'Bolos'
+                                        ? 'bg-purple-50 text-purple-700 border-purple-100'
                                         : 'bg-rose-50 text-rose-700 border-rose-100'
                                     }`}>
                                       {log.status}
@@ -5351,6 +5355,7 @@ export default function App() {
                   <option value="Hadir (Manual)">Hadir (Manual)</option>
                   <option value="Sakit">Sakit (S)</option>
                   <option value="Izin">Izin (I)</option>
+                  <option value="Bolos">Bolos (B)</option>
                   <option value="Alfa">Alfa (A)</option>
                 </select>
               </div>
@@ -5727,6 +5732,8 @@ export default function App() {
                                       ? 'bg-blue-50 text-blue-700 border-blue-100'
                                       : log.status === 'Izin'
                                       ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                      : log.status === 'Bolos'
+                                      ? 'bg-purple-50 text-purple-700 border-purple-100'
                                       : 'bg-rose-50 text-rose-700 border-rose-100'
                                   }`}>
                                     {log.status === 'Hadir (QR)' ? 'QR HADIR' : log.status === 'Hadir (Manual)' ? 'HADIR' : log.status}

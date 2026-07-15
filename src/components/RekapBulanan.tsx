@@ -260,6 +260,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
 
     let sakit = 0;
     let izin = 0;
+    let bolos = 0;
     let alfa = 0;
     let hadir = 0;
 
@@ -271,11 +272,13 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
         const hasHadir = logs.some(l => l.status.startsWith('Hadir'));
         const hasSakit = logs.some(l => l.status === 'Sakit');
         const hasIzin = logs.some(l => l.status === 'Izin');
+        const hasBolos = logs.some(l => l.status === 'Bolos');
         const hasAlfa = logs.some(l => l.status === 'Alfa');
 
         if (hasHadir) hadir++;
         else if (hasSakit) sakit++;
         else if (hasIzin) izin++;
+        else if (hasBolos) bolos++;
         else if (hasAlfa) alfa++;
       } else {
         // Holiday attendance prioritizes Hadir
@@ -292,7 +295,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       }
     });
 
-    const studentTotalSessions = hadir + sakit + izin + alfa;
+    const studentTotalSessions = hadir + sakit + izin + bolos + alfa;
 
     return {
       no: idx + 1,
@@ -301,6 +304,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       kelas: siswa.kelas,
       sakit,
       izin,
+      bolos,
       alfa,
       hadir,
       totalPertemuan: Math.max(studentTotalSessions, totalStudentClassMeetings)
@@ -309,7 +313,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
 
   // Compute detailed per-subject stats for each student
   const rekapPerMapelData = classStudents.map((siswa, idx) => {
-    const subjectStats: { [mapelName: string]: { hadir: number; sakit: number; izin: number; alfa: number; total: number; detailStr: string } } = {};
+    const subjectStats: { [mapelName: string]: { hadir: number; sakit: number; izin: number; bolos: number; alfa: number; total: number; detailStr: string } } = {};
 
     availableMapels.forEach(m => {
       // Get all logs of this student for this specific month and subject
@@ -342,6 +346,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       let hadir = 0;
       let sakit = 0;
       let izin = 0;
+      let bolos = 0;
       let alfa = 0;
 
       // Map student logs by their session keys
@@ -360,11 +365,13 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
           const hasHadir = logs.some(l => l.status.startsWith('Hadir'));
           const hasSakit = logs.some(l => l.status === 'Sakit');
           const hasIzin = logs.some(l => l.status === 'Izin');
+          const hasBolos = logs.some(l => l.status === 'Bolos');
           const hasAlfa = logs.some(l => l.status === 'Alfa');
 
           if (hasHadir) hadir++;
           else if (hasSakit) sakit++;
           else if (hasIzin) izin++;
+          else if (hasBolos) bolos++;
           else if (hasAlfa) alfa++;
         } else {
           const hasHadir = logs.some(l => l.status.startsWith('Hadir'));
@@ -384,9 +391,10 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
         hadir,
         sakit,
         izin,
+        bolos,
         alfa,
         total: totalMeetings,
-        detailStr: totalMeetings > 0 ? `${Math.round((hadir / totalMeetings) * 100)}% (${hadir}/${totalMeetings}) [S:${sakit} I:${izin} A:${alfa}]` : '-'
+        detailStr: totalMeetings > 0 ? `${Math.round((hadir / totalMeetings) * 100)}% (${hadir}/${totalMeetings}) [S:${sakit} I:${izin} B:${bolos} A:${alfa}]` : '-'
       };
     });
 
@@ -441,6 +449,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       'Nama Lengkap': item.nama,
       'Sakit (S)': item.sakit,
       'Izin (I)': item.izin,
+      'Bolos (B)': item.bolos,
       'Alpa (A)': item.alfa,
       'Hadir (H)': item.hadir,
       'Total Pertemuan': item.totalPertemuan
@@ -771,7 +780,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
 
             <div className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs text-slate-500 font-medium">
               <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
-              <span>{viewMode === 'ringkasan' ? 'S: Sakit, I: Izin, A: Alfa, H: Hadir' : 'Format: Hadir / Total Sesi'}</span>
+              <span>{viewMode === 'ringkasan' ? 'S: Sakit, I: Izin, B: Bolos, A: Alfa, H: Hadir' : 'Format: Hadir / Total Sesi'}</span>
             </div>
           </div>
         </div>
@@ -786,6 +795,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
                   <th className="py-3 px-4">Nama Lengkap</th>
                   <th className="py-3 px-4 text-center w-16 text-blue-700 bg-blue-50/50">S</th>
                   <th className="py-3 px-4 text-center w-16 text-amber-700 bg-amber-50/50">I</th>
+                  <th className="py-3 px-4 text-center w-16 text-purple-700 bg-purple-50/50">B</th>
                   <th className="py-3 px-4 text-center w-16 text-rose-700 bg-rose-50/50">A</th>
                   <th className="py-3 px-4 text-center w-16 text-emerald-700 bg-emerald-50/50">H</th>
                   <th className="py-3 px-4 text-center w-36">Total Pertemuan</th>
@@ -794,13 +804,13 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
               <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
                 {isFutureMonthSelected ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-rose-500 font-bold">
+                    <td colSpan={9} className="py-12 text-center text-rose-500 font-bold">
                       [Akses Terkunci] Tidak dapat menampilkan data bulanan untuk tanggal/bulan di masa mendatang.
                     </td>
                   </tr>
                 ) : rekapData.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400">
+                    <td colSpan={9} className="py-12 text-center text-slate-400">
                       Tidak ada data murid yang sesuai dengan filter kelas.
                     </td>
                   </tr>
@@ -812,6 +822,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
                       <td className="py-3 px-4 font-bold text-slate-800">{item.nama}</td>
                       <td className="py-3 px-4 text-center bg-blue-50/20 text-blue-600 font-bold">{item.sakit}</td>
                       <td className="py-3 px-4 text-center bg-amber-50/20 text-amber-600 font-bold">{item.izin}</td>
+                      <td className="py-3 px-4 text-center bg-purple-50/20 text-purple-600 font-bold">{item.bolos}</td>
                       <td className="py-3 px-4 text-center bg-rose-50/20 text-rose-600 font-bold">{item.alfa}</td>
                       <td className="py-3 px-4 text-center bg-emerald-50/20 text-emerald-600 font-bold">{item.hadir}</td>
                       <td className="py-3 px-4 text-center text-slate-700 font-bold">{item.totalPertemuan} Pertemuan</td>
@@ -858,7 +869,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
                         const hasMeetings = stats && stats.total > 0;
                         const pct = hasMeetings ? Math.round((stats.hadir / stats.total) * 100) : 0;
                         return (
-                          <td key={m} className="py-3 px-4 text-center font-sans border-r border-slate-100 last:border-r-0" title={`Hadir: ${stats?.hadir}/${stats?.total} (${pct}%) | Sakit: ${stats?.sakit} | Izin: ${stats?.izin} | Alfa: ${stats?.alfa}`}>
+                          <td key={m} className="py-3 px-4 text-center font-sans border-r border-slate-100 last:border-r-0" title={`Hadir: ${stats?.hadir}/${stats?.total} (${pct}%) | Sakit: ${stats?.sakit} | Izin: ${stats?.izin} | Bolos: ${stats?.bolos} | Alfa: ${stats?.alfa}`}>
                             {hasMeetings ? (
                               <div className="flex flex-col items-center justify-center gap-1">
                                 <span className={`text-xs font-black px-2 py-0.5 rounded-full border whitespace-nowrap ${
@@ -876,6 +887,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
                                 <div className="flex items-center gap-1 text-[9px] font-bold">
                                   <span className="px-1 py-0.2 rounded bg-blue-50 text-blue-600 border border-blue-100/60" title="Sakit">S:{stats.sakit}</span>
                                   <span className="px-1 py-0.2 rounded bg-amber-50 text-amber-600 border border-amber-100/60" title="Izin">I:{stats.izin}</span>
+                                  <span className="px-1 py-0.2 rounded bg-purple-50 text-purple-600 border border-purple-100/60" title="Bolos">B:{stats.bolos}</span>
                                   <span className="px-1 py-0.2 rounded bg-rose-50 text-rose-600 border border-rose-100/60" title="Alfa">A:{stats.alfa}</span>
                                 </div>
                               </div>

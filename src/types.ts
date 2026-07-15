@@ -33,7 +33,7 @@ export interface AbsenLog {
   nis: string;
   nama: string;
   kelas: string;
-  status: 'Hadir (QR)' | 'Hadir (Manual)' | 'Sakit' | 'Izin' | 'Alfa';
+  status: 'Hadir (QR)' | 'Hadir (Manual)' | 'Sakit' | 'Izin' | 'Alfa' | 'Bolos';
   guruNip?: string;
   guruNama?: string;
   mataPelajaran?: string;

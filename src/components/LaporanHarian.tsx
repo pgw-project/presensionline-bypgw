@@ -302,6 +302,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
   const countHadir = processedLogs.filter(p => p.status.startsWith('Hadir')).length;
   const countSakit = processedLogs.filter(p => p.status === 'Sakit').length;
   const countIzin = processedLogs.filter(p => p.status === 'Izin').length;
+  const countBolos = processedLogs.filter(p => p.status === 'Bolos').length;
   const countAlfa = processedLogs.filter(p => p.status === 'Belum Scan' || p.status === 'Alfa').length;
   const countLibur = processedLogs.filter(p => p.status === 'Hari Libur').length;
   
@@ -615,7 +616,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
         </div>
 
         {/* METRICS ROW FOR PRINT PREVIEW & VISIBILITY */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6" id="lap-harian-summary-row">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6" id="lap-harian-summary-row">
           <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-xl text-center">
             <span className="text-[10px] font-bold text-slate-400 block uppercase">
               {reportMode === 'harian' ? 'Total Murid' : 'Total Data Baris'}
@@ -634,14 +635,18 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
             <span className="text-[10px] font-bold text-amber-600 block uppercase">Izin</span>
             <span className="text-xl font-extrabold text-amber-950 mt-0.5 block">{countIzin}</span>
           </div>
+          <div className="bg-purple-50 border border-purple-100 text-purple-800 p-3.5 rounded-xl text-center">
+            <span className="text-[10px] font-bold text-purple-600 block uppercase">Bolos</span>
+            <span className="text-xl font-extrabold text-purple-950 mt-0.5 block">{countBolos}</span>
+          </div>
 
           {reportMode === 'harian' && holidayReason ? (
-            <div className="bg-amber-50 border border-amber-100 text-amber-800 p-3.5 rounded-xl text-center col-span-2 md:col-span-1">
+            <div className="bg-amber-50 border border-amber-100 text-amber-800 p-3.5 rounded-xl text-center">
               <span className="text-[10px] font-bold text-amber-600 block uppercase">Libur</span>
               <span className="text-xl font-extrabold text-amber-950 mt-0.5 block">{countLibur}</span>
             </div>
           ) : (
-            <div className="bg-rose-50 border border-rose-100 text-rose-800 p-3.5 rounded-xl text-center col-span-2 md:col-span-1">
+            <div className="bg-rose-50 border border-rose-100 text-rose-800 p-3.5 rounded-xl text-center">
               <span className="text-[10px] font-bold text-rose-600 block uppercase">Belum Scan</span>
               <span className="text-xl font-extrabold text-rose-950 mt-0.5 block">{countAlfa}</span>
             </div>
@@ -730,6 +735,8 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
                           ? 'bg-blue-50 text-blue-700 border border-blue-100'
                           : item.status === 'Izin'
                           ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                          : item.status === 'Bolos'
+                          ? 'bg-purple-50 text-purple-700 border border-purple-100'
                           : item.status === 'Hari Libur'
                           ? 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse'
                           : 'bg-rose-50 text-rose-700 border border-rose-100'
