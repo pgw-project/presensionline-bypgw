@@ -123,12 +123,12 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
   const availableTingkats = Array.from(new Set<string>([
     ...kelasList.map(k => k.kelas).filter(Boolean),
     ...kelasList.map(k => {
-      const name = k.namaKelas.trim().toUpperCase();
+      const name = (k.namaKelas || '').trim().toUpperCase();
       const parts = name.split(/[\s\-]+/);
       return parts[0] || '';
     }).filter(Boolean),
     ...siswaList.map(s => {
-      const name = s.kelas.trim().toUpperCase();
+      const name = (s.kelas || '').trim().toUpperCase();
       const parts = name.split(/[\s\-]+/);
       return parts[0] || '';
     }).filter(Boolean)
@@ -147,7 +147,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
     ...kelasList.map(k => k.jurusan).filter(Boolean),
     ...kelasList.map(k => {
       if (k.jurusan) return k.jurusan;
-      const parts = k.namaKelas.split(/[\s\-_]+/);
+      const parts = (k.namaKelas || '').split(/[\s\-_]+/);
       const majorPart = parts.find(p => {
         const u = p.toUpperCase().trim();
         return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
@@ -155,7 +155,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
       return majorPart || '';
     }).filter(Boolean),
     ...siswaList.map(s => {
-      const parts = s.kelas.split(/[\s\-_]+/);
+      const parts = (s.kelas || '').split(/[\s\-_]+/);
       const majorPart = parts.find(p => {
         const u = p.toUpperCase().trim();
         return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
@@ -200,12 +200,14 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
 
   // Find all active students in the filtered class
   const classStudents = siswaList.filter(s => {
+    if (!s) return false;
+    const sKelas = typeof s.kelas === 'string' ? s.kelas : (s.kelas != null ? String(s.kelas) : '');
     const matchesStatus = s.status === 'Aktif';
-    const matchesKelas = filterKelas ? s.kelas.trim().toUpperCase() === filterKelas.trim().toUpperCase() : true;
+    const matchesKelas = filterKelas ? sKelas.trim().toUpperCase() === filterKelas.trim().toUpperCase() : true;
 
     let matchesTingkat = true;
     if (filterTingkat) {
-      const cleanKelas = s.kelas.trim().toUpperCase();
+      const cleanKelas = sKelas.trim().toUpperCase();
       const targetTingkat = filterTingkat.toUpperCase();
       matchesTingkat = cleanKelas === targetTingkat ||
                        cleanKelas.startsWith(targetTingkat + '-') ||
@@ -213,7 +215,7 @@ export default function LaporanHarian({ siswaList, absensiList, kelasList, holid
     }
 
     const matchesJurusan = filterJurusan 
-      ? s.kelas.toUpperCase().includes(filterJurusan.toUpperCase()) 
+      ? sKelas.toUpperCase().includes(filterJurusan.toUpperCase()) 
       : true;
 
     return matchesStatus && matchesKelas && matchesTingkat && matchesJurusan;

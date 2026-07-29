@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, 
   User,
@@ -65,6 +65,7 @@ import ScannerComponent from './components/ScannerComponent';
 import LaporanHarian from './components/LaporanHarian';
 import RekapBulanan from './components/RekapBulanan';
 import KenaikanKelas, { isClassMatch, parseTingkat, replaceTingkat } from './components/KenaikanKelas';
+import PresensiMassal from './components/PresensiMassal';
 
 export const MAPEL_OPTIONS = [
   'Matematika',
@@ -86,36 +87,43 @@ export const MAPEL_OPTIONS = [
   'Bimbingan Konseling (BK)',
 ];
 
-export const normalizeClassName = (name: string): string => {
-  return name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+export const normalizeClassName = (name?: any): string => {
+  if (!name) return '';
+  const str = typeof name === 'string' ? name : String(name);
+  return str.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 };
 
-export const cleanCompareTeacher = (t1: string, t2: string): boolean => {
+export const cleanCompareTeacher = (t1?: any, t2?: any): boolean => {
   if (!t1 || !t2) return false;
-  const n1 = t1.trim().toLowerCase().replace(/[^a-z]/g, '');
-  const n2 = t2.trim().toLowerCase().replace(/[^a-z]/g, '');
-  return n1.includes(n2) || n2.includes(n1);
+  const s1 = typeof t1 === 'string' ? t1 : String(t1);
+  const s2 = typeof t2 === 'string' ? t2 : String(t2);
+  const n1 = s1.trim().toLowerCase().replace(/[^a-z]/g, '');
+  const n2 = s2.trim().toLowerCase().replace(/[^a-z]/g, '');
+  return !!(n1 && n2 && (n1.includes(n2) || n2.includes(n1)));
 };
 
-export const getBaseClassGroup = (fullClassName: string, kelasList: { namaKelas: string; kelas?: string; jurusan?: string }[]): string => {
-  const found = kelasList.find(k => k.namaKelas === fullClassName);
+export const getBaseClassGroup = (fullClassName?: any, kelasList?: { namaKelas: string; kelas?: string; jurusan?: string }[]): string => {
+  if (!fullClassName) return '';
+  const str = typeof fullClassName === 'string' ? fullClassName : String(fullClassName);
+  if (!kelasList || !Array.isArray(kelasList)) return str;
+  const found = kelasList.find(k => k && k.namaKelas === str);
   if (found && found.kelas && found.jurusan) {
     return `${found.kelas}-${found.jurusan}`;
   }
-  if (fullClassName.includes(' - ')) {
-    return fullClassName.split(' - ')[0];
+  if (str.includes(' - ')) {
+    return str.split(' - ')[0];
   }
-  return fullClassName;
+  return str;
 };
 
-export const isTeacherWaliOfClass = (teacher: { nama: string; jabatan?: string }, k: { namaKelas: string; kelas?: string; jurusan?: string }): boolean => {
-  if (!teacher || !k) return false;
+export const isTeacherWaliOfClass = (teacher?: { nama: string; jabatan?: string }, k?: { namaKelas: string; kelas?: string; jurusan?: string }): boolean => {
+  if (!teacher || !k || !k.namaKelas) return false;
   const jab = (teacher.jabatan || '').toLowerCase();
   if (!jab.includes('wali kelas') && !jab.includes('walikelas') && !jab.includes('wali')) return false;
   const normalizedJab = normalizeClassName(teacher.jabatan || '');
-  const baseClass = k.namaKelas.split(' - ')[0];
+  const baseClass = (typeof k.namaKelas === 'string' ? k.namaKelas : String(k.namaKelas)).split(' - ')[0];
   const normalizedBase = normalizeClassName(baseClass);
-  return normalizedJab.includes(normalizedBase);
+  return !!(normalizedJab && normalizedBase && normalizedJab.includes(normalizedBase));
 };
 
 export const getWaliKelasForClass = (
@@ -465,6 +473,7 @@ export default function App() {
   const [targetKelasNama, setTargetKelasNama] = useState<string>('');
 
   const [showAbsenManualModal, setShowAbsenManualModal] = useState<boolean>(false);
+  const [kelolaTab, setKelolaTab] = useState<'massal' | 'single'>('massal');
 
   // Guru Control Panel inspect states
   const [showGuruControlModal, setShowGuruControlModal] = useState<boolean>(false);
@@ -1885,7 +1894,11 @@ export default function App() {
   const isGuruNonAdmin = appState.currentUser?.role === 'guru' && !isSystemAdmin(appState.currentUser);
   
   // Find current teacher object to fetch classes assigned to teach
-  const currentGuruObj = appState.guru.find(g => g.nip === appState.currentUser?.username);
+  const currentGuruObj = appState.guru.find(g => 
+    (g.nip && appState.currentUser?.username && g.nip.trim() === appState.currentUser.username.trim()) ||
+    (g.nama && appState.currentUser?.nama && cleanCompareTeacher(g.nama, appState.currentUser.nama)) ||
+    (g.nama && appState.currentUser?.username && cleanCompareTeacher(g.nama, appState.currentUser.username))
+  );
   const classesTaughtByGuru = currentGuruObj?.kelasDiajar || [];
 
   const managedClasses = Array.from(new Set([
@@ -1901,13 +1914,16 @@ export default function App() {
   const normalizedManagedClasses = baseManagedClasses.map(c => normalizeClassName(c));
 
   // Restricted lists for components & dropdowns (supports flexible subject teacher viewing)
-  const restrictedSiswaList = isGuruNonAdmin
-    ? appState.siswa.filter(s => {
-        const normalizedStudentClass = normalizeClassName(s.kelas);
-        // Direct matching or partial matching for flexible rombel structures (e.g. "XII RPL 1" matches "XII-RPL-1")
-        return normalizedManagedClasses.some(mc => normalizedStudentClass === mc || normalizedStudentClass.includes(mc) || mc.includes(normalizedStudentClass));
-      })
-    : appState.siswa;
+  const restrictedSiswaList = useMemo(() => {
+    const rawList = isGuruNonAdmin
+      ? appState.siswa.filter(s => {
+          const normalizedStudentClass = normalizeClassName(s.kelas);
+          // Direct matching or partial matching for flexible rombel structures (e.g. "XII RPL 1" matches "XII-RPL-1")
+          return normalizedManagedClasses.some(mc => normalizedStudentClass === mc || normalizedStudentClass.includes(mc) || mc.includes(normalizedStudentClass));
+        })
+      : appState.siswa;
+    return [...rawList].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+  }, [isGuruNonAdmin, appState.siswa, normalizedManagedClasses]);
 
   const restrictedAbsensiList = isGuruNonAdmin
     ? appState.absensi.filter(l => {
@@ -1929,9 +1945,16 @@ export default function App() {
   // Allowed mapels, tingkats, jurusans strictly corresponding to teacher's managed/taught classes:
   const allowedGuruMapels = isGuruNonAdmin
     ? Array.from(new Set(
-        restrictedKelasList
-          .map(k => k.mapel)
-          .filter((m): m is string => !!m && m.trim().length > 0)
+        [
+          ...(currentGuruObj?.mataPelajaran ? currentGuruObj.mataPelajaran.split(/[,;/]/).map(s => s.trim()) : []),
+          ...restrictedKelasList.map(k => k.mapel),
+          ...appState.kelas.filter(k => 
+            cleanCompareTeacher(k.guruMapel || '', appState.currentUser?.nama || '') || 
+            k.guruMapel === appState.currentUser?.username ||
+            cleanCompareTeacher(k.waliKelas || '', appState.currentUser?.nama || '') ||
+            k.waliKelas === appState.currentUser?.username
+          ).map(k => k.mapel)
+        ].filter((m): m is string => !!m && m.trim().length > 0)
       ))
     : Array.from(new Set<string>([
         ...appState.kelas.map(k => k.mapel).filter(Boolean),
@@ -1941,7 +1964,10 @@ export default function App() {
   const allowedGuruTingkat = isGuruNonAdmin
     ? Array.from(new Set<string>(
         restrictedKelasList
-          .map(k => (k.kelas || k.namaKelas.split('-')[0] || k.namaKelas.split(' ')[0] || '').trim().toUpperCase())
+          .map(k => {
+            const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
+            return (k.kelas || name.split('-')[0] || name.split(' ')[0] || '').trim().toUpperCase();
+          })
           .filter(Boolean)
       )).sort((a: string, b: string) => {
         const standard = ['X', 'XI', 'XII'];
@@ -1953,8 +1979,14 @@ export default function App() {
         return a.localeCompare(b);
       })
     : Array.from(new Set<string>([
-        ...appState.kelas.map(k => (k.kelas || k.namaKelas.split('-')[0] || k.namaKelas.split(' ')[0] || '').trim().toUpperCase()),
-        ...appState.siswa.map(s => (s.kelas.split('-')[0] || s.kelas.split(' ')[0] || '').trim().toUpperCase())
+        ...appState.kelas.map(k => {
+          const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
+          return (k.kelas || name.split('-')[0] || name.split(' ')[0] || '').trim().toUpperCase();
+        }),
+        ...appState.siswa.map(s => {
+          const sk = typeof s.kelas === 'string' ? s.kelas : '';
+          return (sk.split('-')[0] || sk.split(' ')[0] || '').trim().toUpperCase();
+        })
       ])).filter(t => t.length > 0 && t !== 'CUSTOM' && t !== 'ADMIN' && t !== 'GURU').sort((a: string, b: string) => {
         const standard = ['X', 'XI', 'XII'];
         const idxA = standard.indexOf(a);
@@ -1968,13 +2000,20 @@ export default function App() {
   const allowedGuruJurusan = isGuruNonAdmin
     ? Array.from(new Set<string>(
         restrictedKelasList
-          .map(k => (k.jurusan || k.namaKelas.split('-').slice(1).join('-') || '').trim().toUpperCase())
+          .map(k => {
+            const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
+            return (k.jurusan || name.split('-').slice(1).join('-') || '').trim().toUpperCase();
+          })
           .filter(Boolean)
       )).sort()
     : Array.from(new Set<string>([
-        ...appState.kelas.map(k => (k.jurusan || k.namaKelas.split('-').slice(1).join('-') || '').trim().toUpperCase()),
+        ...appState.kelas.map(k => {
+          const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
+          return (k.jurusan || name.split('-').slice(1).join('-') || '').trim().toUpperCase();
+        }),
         ...appState.siswa.map(s => {
-          const parts = s.kelas.split('-');
+          const sk = typeof s.kelas === 'string' ? s.kelas : '';
+          const parts = sk.split('-');
           return (parts.length > 1 ? parts.slice(1).join('-') : '').trim().toUpperCase();
         })
       ])).filter(j => j.length > 0 && j !== 'CUSTOM' && j !== 'ADMIN' && j !== 'GURU').sort();
@@ -1988,7 +2027,7 @@ export default function App() {
   useEffect(() => {
     if (isGuruNonAdmin) {
       if (allowedGuruMapels.length > 0 && !allowedGuruMapels.includes(activeMataPelajaran)) {
-        setActiveMataPelajaran(allowedGuruMapels[0]);
+        setActiveMataPelajaran(allowedGuruMapels[0] || '');
       }
       if (activeSessionTingkat && !allowedGuruTingkat.includes(activeSessionTingkat)) {
         setActiveSessionTingkat('');
@@ -2010,41 +2049,52 @@ export default function App() {
 
   // Filter kelas based on UI searches
   const filteredKelasList = restrictedKelasList.filter(k => {
+    if (!k) return false;
+    const kNama = typeof k.namaKelas === 'string' ? k.namaKelas : '';
     let matchesTingkat = true;
     if (filterKelasTingkat) {
-      const level = (k.kelas || k.namaKelas.split('-')[0] || '').trim().toUpperCase();
+      const level = (k.kelas || kNama.split('-')[0] || '').trim().toUpperCase();
       matchesTingkat = level === filterKelasTingkat.toUpperCase();
     }
 
     let matchesJurusan = true;
     if (filterKelasJurusan) {
-      const jur = (k.jurusan || k.namaKelas.split('-').slice(1).join('-') || '').trim().toUpperCase();
-      matchesJurusan = jur.includes(filterKelasJurusan.toUpperCase()) || k.namaKelas.toUpperCase().includes(filterKelasJurusan.toUpperCase());
+      const jur = (k.jurusan || kNama.split('-').slice(1).join('-') || '').trim().toUpperCase();
+      matchesJurusan = jur.includes(filterKelasJurusan.toUpperCase()) || kNama.toUpperCase().includes(filterKelasJurusan.toUpperCase());
     }
 
     return matchesTingkat && matchesJurusan;
   });
 
   // Filter students based on UI searches & guru permissions
-  const filteredStudents = restrictedSiswaList.filter(s => {
-    const matchesSearch = s.nama.toLowerCase().includes(searchSiswaQuery.toLowerCase()) || s.nis.includes(searchSiswaQuery);
-    const matchesKelas = filterSiswaKelas ? s.kelas === filterSiswaKelas : true;
+  const filteredStudents = useMemo(() => {
+    return restrictedSiswaList
+      .filter(s => {
+        if (!s) return false;
+        const sNama = typeof s.nama === 'string' ? s.nama : '';
+        const sNis = typeof s.nis === 'string' ? s.nis : '';
+        const sKelas = typeof s.kelas === 'string' ? s.kelas : (s.kelas != null ? String(s.kelas) : '');
 
-    let matchesTingkat = true;
-    if (filterSiswaTingkat) {
-      const cleanKelas = s.kelas.trim().toUpperCase();
-      const targetTingkat = filterSiswaTingkat.toUpperCase();
-      matchesTingkat = cleanKelas === targetTingkat ||
-                       cleanKelas.startsWith(targetTingkat + '-') ||
-                       cleanKelas.startsWith(targetTingkat + ' ');
-    }
+        const matchesSearch = sNama.toLowerCase().includes((searchSiswaQuery || '').toLowerCase()) || sNis.includes(searchSiswaQuery || '');
+        const matchesKelas = filterSiswaKelas ? sKelas === filterSiswaKelas : true;
 
-    const matchesJurusan = filterSiswaJurusan 
-      ? s.kelas.toUpperCase().includes(filterSiswaJurusan.toUpperCase()) 
-      : true;
+        let matchesTingkat = true;
+        if (filterSiswaTingkat) {
+          const cleanKelas = sKelas.trim().toUpperCase();
+          const targetTingkat = filterSiswaTingkat.toUpperCase();
+          matchesTingkat = cleanKelas === targetTingkat ||
+                           cleanKelas.startsWith(targetTingkat + '-') ||
+                           cleanKelas.startsWith(targetTingkat + ' ');
+        }
 
-    return matchesSearch && matchesKelas && matchesTingkat && matchesJurusan;
-  });
+        const matchesJurusan = filterSiswaJurusan 
+          ? sKelas.toUpperCase().includes(filterSiswaJurusan.toUpperCase()) 
+          : true;
+
+        return matchesSearch && matchesKelas && matchesTingkat && matchesJurusan;
+      })
+      .sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+  }, [restrictedSiswaList, searchSiswaQuery, filterSiswaKelas, filterSiswaTingkat, filterSiswaJurusan]);
 
   // Today log list calculations
   const todayDateStr = new Date().toISOString().split('T')[0];
@@ -4272,8 +4322,9 @@ export default function App() {
                                   className="w-full text-xs bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-3 py-2.5 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                                 >
                                   <option value="">-- Pilih Guru / NIP --</option>
-                                  {appState.guru
+                                  {[...appState.guru]
                                     .filter(g => isServerAdmin(appState.currentUser) || !isServerAdmin({ username: g.nip }))
+                                    .sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'))
                                     .map(g => (
                                       <option key={g.nip} value={g.nip}>
                                         {g.nama} ({g.nip})
@@ -4290,11 +4341,13 @@ export default function App() {
                                   className="w-full text-xs bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-3 py-2.5 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                                 >
                                   <option value="">-- Pilih Siswa / NISN --</option>
-                                  {appState.siswa.map(s => (
-                                    <option key={s.nis} value={s.nis}>
-                                      {s.nama} ({s.kelas} - {s.nis})
-                                    </option>
-                                  ))}
+                                  {[...appState.siswa]
+                                    .sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'))
+                                    .map(s => (
+                                      <option key={s.nis} value={s.nis}>
+                                        {s.nama} ({s.kelas} - {s.nis})
+                                      </option>
+                                    ))}
                                 </select>
                               </div>
                             )}
@@ -4386,8 +4439,9 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {appState.guru
+                            {[...appState.guru]
                               .filter(g => isServerAdmin(appState.currentUser) || !isServerAdmin({ username: g.nip }))
+                              .sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'))
                               .map((guru, idx) => (
                               <tr key={guru.nip} className="hover:bg-slate-50/50 transition-colors">
                                 <td className="py-3 px-4 text-center text-slate-400 font-mono">{idx + 1}</td>
@@ -4606,118 +4660,177 @@ export default function App() {
                   </motion.div>
                 )}
 
-                {/* 5. KELOLA ABSEN (MANUAL CORRECTIONS LIST) */}
+                {/* 5. KELOLA ABSEN (MASS & MANUAL CORRECTIONS) */}
                 {activeSection === 'g-kelola' && (
                   <motion.div
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="space-y-5"
                   >
-                    <div className="flex justify-between items-center gap-4">
-                      <div>
-                        <h2 className="text-xl font-black text-slate-900 tracking-tight">Kelola Log Kehadiran Siswa</h2>
-                        <p className="text-slate-500 text-xs mt-0.5 flex flex-wrap items-center gap-2">
-                          <span>Penghapusan, revisi data log masuk, atau penulisan absen manual mandiri.</span>
-                          <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-150 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
-                            ⚠️ Daftar Otomatis Reset Pukul 06:00 Pagi Setiap Hari
-                          </span>
-                        </p>
-                      </div>
+                    {/* SUB-TAB TOGGLE */}
+                    <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
                       <button
-                        onClick={() => {
-                          setFieldManualAbsenFilterTingkat('');
-                          setFieldManualAbsenFilterJurusan('');
-                          setFieldManualAbsenNis(restrictedSiswaList[0]?.nis || '');
-                          const nowObj = new Date();
-                          setFieldManualAbsenDate(nowObj.toISOString().split('T')[0]);
-                          setFieldManualAbsenStatus('Hadir (Manual)');
-                          setShowAbsenManualModal(true);
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow flex items-center gap-1.5 cursor-pointer"
-                        id="btn-tambah-manual-log"
+                        onClick={() => setKelolaTab('massal')}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                          kelolaTab === 'massal'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                        }`}
+                        id="tab-presensi-massal"
                       >
-                        <Plus className="w-4 h-4" />
-                        <span>Input Presensi Manual</span>
+                        <Users className="w-4 h-4" />
+                        <span>Presensi Massal Per Kelas</span>
+                      </button>
+                      <button
+                        onClick={() => setKelolaTab('single')}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                          kelolaTab === 'single'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                        }`}
+                        id="tab-presensi-single"
+                      >
+                        <ListTodo className="w-4 h-4" />
+                        <span>Log Hari Ini & Input Manual Single</span>
                       </button>
                     </div>
 
-                    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-                      <div className="max-h-[550px] overflow-y-auto">
-                        <table className="w-full border-collapse text-left text-sm text-slate-700">
-                          <thead>
-                            <tr className="border-b border-slate-200 text-slate-800 font-bold bg-slate-100/50 sticky top-0 bg-white z-10 shadow-sm">
-                              <th className="py-3 px-4 font-bold text-center w-16">No</th>
-                              <th className="py-3 px-4 font-bold w-40">Waktu Input</th>
-                              <th className="py-3 px-4 font-bold w-24">NISN</th>
-                              <th className="py-3 px-4 font-bold">Nama Murid</th>
-                              <th className="py-3 px-4 font-bold text-center w-24">Kelas</th>
-                              <th className="py-3 px-4 font-bold text-slate-800 w-40">Mata Pelajaran</th>
-                              <th className="py-3 px-4 font-bold text-slate-800 text-center w-20">Jam Ke</th>
-                              <th className="py-3 px-4 font-bold text-slate-800 w-36">Guru Pengampu</th>
-                              <th className="py-3 px-4 font-bold text-center w-32">Status</th>
-                              <th className="py-3 px-4 font-bold text-center w-24">Opsi</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {kelolaAbsensiList.length === 0 ? (
-                              <tr>
-                                <td colSpan={10} className="py-12 text-center text-slate-400 font-medium">
-                                  Belum ada rekaman log presensi aktif hari ini.
-                                </td>
-                              </tr>
-                            ) : (
-                              kelolaAbsensiList.map((log, idx) => (
-                                <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                                  <td className="py-3 px-4 text-center text-slate-400 font-mono">{idx + 1}</td>
-                                  <td className="py-3 px-4 font-mono text-xs text-slate-500">
-                                    {new Date(log.timestamp).toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                                  </td>
-                                  <td className="py-3 px-4 font-mono font-medium text-slate-450">{log.nis}</td>
-                                  <td className="py-3 px-4 font-bold text-slate-800">{log.nama}</td>
-                                  <td className="py-3 px-4 text-center uppercase font-semibold text-slate-650">{log.kelas}</td>
-                                  <td className="py-3 px-4">
-                                    <span className="font-semibold text-teal-850 text-xs bg-teal-50 px-2 py-1 rounded-md border border-teal-100/60 block truncate max-w-[150px]" title={log.mataPelajaran || 'Umum'}>
-                                      {log.mataPelajaran || 'Umum'}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 px-4 text-center font-mono font-bold text-slate-600 text-xs bg-slate-50/50">
-                                    {log.jamKe || '1'}
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    <span className="font-semibold text-slate-700 text-xs truncate block max-w-[130px]" title={log.guruNama || 'Admin'}>
-                                      {log.guruNama || 'Admin'}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 px-4 text-center">
-                                    <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold inline-block border ${
-                                      log.status.startsWith('Hadir')
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                        : log.status === 'Sakit'
-                                        ? 'bg-blue-50 text-blue-700 border-blue-100'
-                                        : log.status === 'Izin'
-                                        ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                        : log.status === 'Bolos'
-                                        ? 'bg-purple-50 text-purple-700 border-purple-100'
-                                        : 'bg-rose-50 text-rose-700 border-rose-100'
-                                    }`}>
-                                      {log.status}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 px-4 text-center">
-                                    <button
-                                      onClick={() => deleteAbsenLog(log.id)}
-                                      className="text-rose-600 hover:text-rose-800 p-1 bg-rose-50 rounded hover:bg-rose-100 transition-colors cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </td>
+                    {kelolaTab === 'massal' ? (
+                      <PresensiMassal
+                        appState={appState}
+                        currentUser={appState.currentUser}
+                        currentGuruObj={currentGuruObj}
+                        isGuruNonAdmin={isGuruNonAdmin}
+                        restrictedKelasList={restrictedKelasList}
+                        restrictedSiswaList={restrictedSiswaList}
+                        allowedGuruMapels={allowedGuruMapels}
+                        allowedGuruTingkat={allowedGuruTingkat}
+                        allowedGuruJurusan={allowedGuruJurusan}
+                        activeMataPelajaran={activeMataPelajaran}
+                        customMataPelajaran={customMataPelajaran}
+                        activeSessionJamKe={activeSessionJamKe}
+                        activeSessionTingkat={activeSessionTingkat}
+                        activeSessionJurusan={activeSessionJurusan}
+                        activeSchoolId={activeSchoolId}
+                        isWithinSchoolHours={isWithinSchoolHours}
+                        getActiveSchoolHoursConfig={getActiveSchoolHoursConfig}
+                        getHoliday={getHoliday}
+                        checkGuruAttendancePermission={checkGuruAttendancePermission}
+                        triggerToast={triggerToast}
+                        onSaveMassal={(newLogs) => {
+                          setAppState(prev => {
+                            const newLogIds = new Set(newLogs.map(l => l.id));
+                            const filtered = prev.absensi.filter(l => !newLogIds.has(l.id));
+                            return {
+                              ...prev,
+                              absensi: [...newLogs, ...filtered]
+                            };
+                          });
+                        }}
+                      />
+                    ) : (
+                      <div className="space-y-5">
+                        <div className="flex justify-between items-center gap-4">
+                          <div>
+                            <h2 className="text-xl font-black text-slate-900 tracking-tight">Kelola Log Kehadiran Siswa</h2>
+                            <p className="text-slate-500 text-xs mt-0.5 flex flex-wrap items-center gap-2">
+                              <span>Penghapusan, revisi data log masuk, atau penulisan absen manual mandiri.</span>
+                              <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-150 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
+                                ⚠️ Daftar Otomatis Reset Pukul 06:00 Pagi Setiap Hari
+                              </span>
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setFieldManualAbsenFilterTingkat('');
+                              setFieldManualAbsenFilterJurusan('');
+                              setFieldManualAbsenNis(restrictedSiswaList[0]?.nis || '');
+                              const nowObj = new Date();
+                              setFieldManualAbsenDate(nowObj.toISOString().split('T')[0]);
+                              setFieldManualAbsenStatus('Hadir (Manual)');
+                              setShowAbsenManualModal(true);
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow flex items-center gap-1.5 cursor-pointer"
+                            id="btn-tambah-manual-log"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>Input Presensi Manual Single</span>
+                          </button>
+                        </div>
+
+                        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+                          <div className="max-h-[550px] overflow-y-auto">
+                            <table className="w-full border-collapse text-left text-sm text-slate-700">
+                              <thead>
+                                <tr className="border-b border-slate-200 text-slate-800 font-bold bg-slate-100/50 sticky top-0 bg-white z-10 shadow-sm">
+                                  <th className="py-3 px-4 font-bold text-center w-16">No</th>
+                                  <th className="py-3 px-4 font-bold w-40">Waktu Input</th>
+                                  <th className="py-3 px-4 font-bold w-24">NISN</th>
+                                  <th className="py-3 px-4 font-bold">Nama Murid</th>
+                                  <th className="py-3 px-4 font-bold text-center w-24">Kelas</th>
+                                  <th className="py-3 px-4 font-bold text-slate-800 text-center w-20">Jam Ke</th>
+                                  <th className="py-3 px-4 font-bold text-slate-800 w-36">Guru Pengampu</th>
+                                  <th className="py-3 px-4 font-bold text-center w-32">Status</th>
+                                  <th className="py-3 px-4 font-bold text-center w-24">Opsi</th>
                                 </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {kelolaAbsensiList.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                                      Belum ada rekaman log presensi aktif hari ini.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  kelolaAbsensiList.map((log, idx) => (
+                                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                                      <td className="py-3 px-4 text-center text-slate-400 font-mono">{idx + 1}</td>
+                                      <td className="py-3 px-4 font-mono text-xs text-slate-500">
+                                        {new Date(log.timestamp).toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                      </td>
+                                      <td className="py-3 px-4 font-mono font-medium text-slate-450">{log.nis}</td>
+                                      <td className="py-3 px-4 font-bold text-slate-800">{log.nama}</td>
+                                      <td className="py-3 px-4 text-center uppercase font-semibold text-slate-650">{log.kelas}</td>
+                                      <td className="py-3 px-4 text-center font-mono font-bold text-slate-600 text-xs bg-slate-50/50">
+                                        {log.jamKe || '1'}
+                                      </td>
+                                      <td className="py-3 px-4">
+                                        <span className="font-semibold text-slate-700 text-xs truncate block max-w-[130px]" title={log.guruNama || 'Admin'}>
+                                          {log.guruNama || 'Admin'}
+                                        </span>
+                                      </td>
+                                      <td className="py-3 px-4 text-center">
+                                        <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold inline-block border ${
+                                          log.status.startsWith('Hadir')
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                            : log.status === 'Sakit'
+                                            ? 'bg-blue-50 text-blue-700 border-blue-100'
+                                            : log.status === 'Izin'
+                                            ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                            : log.status === 'Bolos'
+                                            ? 'bg-purple-50 text-purple-700 border-purple-100'
+                                            : 'bg-rose-50 text-rose-700 border-rose-100'
+                                        }`}>
+                                          {log.status}
+                                        </span>
+                                      </td>
+                                      <td className="py-3 px-4 text-center">
+                                        <button
+                                          onClick={() => deleteAbsenLog(log.id)}
+                                          className="text-rose-600 hover:text-rose-800 p-1 bg-rose-50 rounded hover:bg-rose-100 transition-colors cursor-pointer"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </motion.div>
                 )}
 

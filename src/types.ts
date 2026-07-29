@@ -14,6 +14,7 @@ export interface Guru {
   password?: string;
   kelasDiajar?: string[];
   foto?: string;
+  mataPelajaran?: string;
 }
 
 export interface Kelas {

@@ -55,12 +55,12 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
   const availableTingkats = Array.from(new Set<string>([
     ...kelasList.map(k => k.kelas).filter(Boolean),
     ...kelasList.map(k => {
-      const name = k.namaKelas.trim().toUpperCase();
+      const name = (k.namaKelas || '').trim().toUpperCase();
       const parts = name.split(/[\s\-]+/);
       return parts[0] || '';
     }).filter(Boolean),
     ...siswaList.map(s => {
-      const name = s.kelas.trim().toUpperCase();
+      const name = (s.kelas || '').trim().toUpperCase();
       const parts = name.split(/[\s\-]+/);
       return parts[0] || '';
     }).filter(Boolean)
@@ -79,7 +79,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
     ...kelasList.map(k => k.jurusan).filter(Boolean),
     ...kelasList.map(k => {
       if (k.jurusan) return k.jurusan;
-      const parts = k.namaKelas.split(/[\s\-_]+/);
+      const parts = (k.namaKelas || '').split(/[\s\-_]+/);
       const majorPart = parts.find(p => {
         const u = p.toUpperCase().trim();
         return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
@@ -87,7 +87,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       return majorPart || '';
     }).filter(Boolean),
     ...siswaList.map(s => {
-      const parts = s.kelas.split(/[\s\-_]+/);
+      const parts = (s.kelas || '').split(/[\s\-_]+/);
       const majorPart = parts.find(p => {
         const u = p.toUpperCase().trim();
         return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
@@ -173,12 +173,14 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
 
   // Find all active students in that class
   const classStudents = siswaList.filter(s => {
+    if (!s) return false;
+    const sKelas = typeof s.kelas === 'string' ? s.kelas : (s.kelas != null ? String(s.kelas) : '');
     const matchesStatus = s.status === 'Aktif';
-    const matchesKelas = selectedKelas ? s.kelas.trim().toUpperCase() === selectedKelas.trim().toUpperCase() : true;
+    const matchesKelas = selectedKelas ? sKelas.trim().toUpperCase() === selectedKelas.trim().toUpperCase() : true;
 
     let matchesTingkat = true;
     if (filterTingkat) {
-      const cleanKelas = s.kelas.trim().toUpperCase();
+      const cleanKelas = sKelas.trim().toUpperCase();
       const targetTingkat = filterTingkat.toUpperCase();
       matchesTingkat = cleanKelas === targetTingkat ||
                        cleanKelas.startsWith(targetTingkat + '-') ||
@@ -186,7 +188,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
     }
 
     const matchesJurusan = filterJurusan 
-      ? s.kelas.toUpperCase().includes(filterJurusan.toUpperCase()) 
+      ? sKelas.toUpperCase().includes(filterJurusan.toUpperCase()) 
       : true;
 
     return matchesStatus && matchesKelas && matchesTingkat && matchesJurusan;
@@ -196,19 +198,21 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
   const uniqueSchoolRawSessions = Array.from(new Set(
     absensiList
       .filter(log => {
+        if (!log) return false;
+        const logKelas = typeof log.kelas === 'string' ? log.kelas : (log.kelas != null ? String(log.kelas) : '');
         const matchBulan = log.bulan === selectedBulan;
-        const matchKelas = selectedKelas ? log.kelas.trim().toUpperCase() === selectedKelas.trim().toUpperCase() : true;
+        const matchKelas = selectedKelas ? logKelas.trim().toUpperCase() === selectedKelas.trim().toUpperCase() : true;
 
         let matchTingkat = true;
         if (filterTingkat) {
-          const cleanK = log.kelas.trim().toUpperCase();
+          const cleanK = logKelas.trim().toUpperCase();
           const targetTingkat = filterTingkat.toUpperCase();
           matchTingkat = cleanK === targetTingkat ||
                          cleanK.startsWith(targetTingkat + '-') ||
                          cleanK.startsWith(targetTingkat + ' ');
         }
 
-        const matchJurusan = filterJurusan ? log.kelas.trim().toUpperCase().includes(filterJurusan.toUpperCase()) : true;
+        const matchJurusan = filterJurusan ? logKelas.trim().toUpperCase().includes(filterJurusan.toUpperCase()) : true;
         const matchMapel = filterMapel ? log.mataPelajaran === filterMapel : true;
 
         return matchBulan && matchKelas && matchTingkat && matchJurusan && matchMapel;
@@ -245,8 +249,11 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
     const studentClassSessions = Array.from(new Set(
       absensiList
         .filter(log => {
+          if (!log) return false;
           const matchBulan = log.bulan === selectedBulan;
-          const matchKelas = log.kelas.trim().toUpperCase() === siswa.kelas.trim().toUpperCase(); // strictly matches student's own class
+          const logK = (log.kelas || '').trim().toUpperCase();
+          const sisK = (siswa.kelas || '').trim().toUpperCase();
+          const matchKelas = logK === sisK; // strictly matches student's own class
           const matchMapel = filterMapel ? log.mataPelajaran === filterMapel : true;
           return matchBulan && matchKelas && matchMapel;
         })
@@ -332,8 +339,11 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
       const classSessionsForSubject = Array.from(new Set(
         absensiList
           .filter(log => {
+            if (!log) return false;
             const matchBulan = log.bulan === selectedBulan;
-            const matchKelas = log.kelas.trim().toUpperCase() === siswa.kelas.trim().toUpperCase();
+            const logK = (log.kelas || '').trim().toUpperCase();
+            const sisK = (siswa.kelas || '').trim().toUpperCase();
+            const matchKelas = logK === sisK;
             const matchMapel = log.mataPelajaran === m;
             return matchBulan && matchKelas && matchMapel;
           })
