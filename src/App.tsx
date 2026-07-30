@@ -540,6 +540,7 @@ export default function App() {
   // Filters for Class Management
   const [filterKelasTingkat, setFilterKelasTingkat] = useState<string>('');
   const [filterKelasJurusan, setFilterKelasJurusan] = useState<string>('');
+  const [filterKelasGuru, setFilterKelasGuru] = useState<string>('');
 
   // Toast alert states
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'warning' | 'error' }>>([]);
@@ -2063,7 +2064,13 @@ export default function App() {
       matchesJurusan = jur.includes(filterKelasJurusan.toUpperCase()) || kNama.toUpperCase().includes(filterKelasJurusan.toUpperCase());
     }
 
-    return matchesTingkat && matchesJurusan;
+    let matchesGuru = true;
+    if (filterKelasGuru) {
+      const gName = (k.guruMapel || k.waliKelas || '').trim().toLowerCase();
+      matchesGuru = gName.includes(filterKelasGuru.trim().toLowerCase());
+    }
+
+    return matchesTingkat && matchesJurusan && matchesGuru;
   });
 
   // Filter students based on UI searches & guru permissions
@@ -4568,7 +4575,7 @@ export default function App() {
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-505 font-bold uppercase text-[10px]">Jurusan:</span>
+                        <span className="text-xs text-slate-500 font-bold uppercase text-[10px]">Jurusan:</span>
                         <select
                           value={filterKelasJurusan}
                           onChange={(e) => setFilterKelasJurusan(e.target.value)}
@@ -4585,11 +4592,31 @@ export default function App() {
                         </select>
                       </div>
 
-                      {(filterKelasTingkat || filterKelasJurusan) && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500 font-bold uppercase text-[10px]">Nama Guru:</span>
+                        <select
+                          value={filterKelasGuru}
+                          onChange={(e) => setFilterKelasGuru(e.target.value)}
+                          className="bg-white border border-slate-200 text-xs px-3 py-1.5 rounded-xl font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          id="sel-filter-kelas-guru"
+                        >
+                          <option value="">Semua Guru</option>
+                          {/* Dynamically extract unique teacher names in appState.kelas and appState.guru */}
+                          {Array.from(new Set([
+                            ...appState.kelas.map(k => (k.guruMapel || k.waliKelas || '').trim()).filter(Boolean),
+                            ...appState.guru.map(g => (g.nama || '').trim()).filter(Boolean)
+                          ])).sort((a, b) => a.localeCompare(b, 'id')).map(gName => (
+                            <option key={gName} value={gName}>{gName}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {(filterKelasTingkat || filterKelasJurusan || filterKelasGuru) && (
                         <button
                           onClick={() => {
                             setFilterKelasTingkat('');
                             setFilterKelasJurusan('');
+                            setFilterKelasGuru('');
                           }}
                           className="text-xs text-rose-600 hover:text-rose-800 font-semibold px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 transition-colors cursor-pointer"
                         >
