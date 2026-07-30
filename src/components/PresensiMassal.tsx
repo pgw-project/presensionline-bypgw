@@ -157,9 +157,9 @@ export default function PresensiMassal({
     }
   }, [teacherMapelOptions, selectedMapel]);
 
-  // Available Tingkat options
+  // Available Tingkat options strictly scoped to teacher
   const availableTingkats = useMemo(() => {
-    if (isGuruNonAdmin && allowedGuruTingkat && allowedGuruTingkat.length > 0) return allowedGuruTingkat;
+    if (isGuruNonAdmin) return allowedGuruTingkat || [];
     const setT = new Set<string>();
     restrictedKelasList.forEach(k => {
       const t = k.kelas || (k.namaKelas || '').split('-')[0];
@@ -168,15 +168,31 @@ export default function PresensiMassal({
     return Array.from(setT).sort();
   }, [isGuruNonAdmin, allowedGuruTingkat, restrictedKelasList]);
 
-  // Available Jurusan options
+  // Available Jurusan options strictly scoped to teacher
   const availableJurusans = useMemo(() => {
-    if (isGuruNonAdmin && allowedGuruJurusan && allowedGuruJurusan.length > 0) return allowedGuruJurusan;
+    if (isGuruNonAdmin) return allowedGuruJurusan || [];
     const setJ = new Set<string>();
     restrictedKelasList.forEach(k => {
       if (k.jurusan) setJ.add(k.jurusan.toUpperCase());
     });
     return Array.from(setJ).sort();
   }, [isGuruNonAdmin, allowedGuruJurusan, restrictedKelasList]);
+
+  // Available Jam Ke options (default Jam Ke-1 s/d Jam Ke-4)
+  const availableJamOptions = useMemo(() => {
+    let maxJam = 4;
+    (appState.absensi || []).forEach(log => {
+      const num = parseInt(log.jamKe || '0', 10);
+      if (!isNaN(num) && num > maxJam) {
+        maxJam = num;
+      }
+    });
+    const options: string[] = [];
+    for (let i = 1; i <= maxJam; i++) {
+      options.push(i.toString());
+    }
+    return options;
+  }, [appState.absensi]);
 
   // Auto-select Tingkat if only 1 option or current selection invalid
   useEffect(() => {
@@ -527,14 +543,9 @@ export default function PresensiMassal({
               onChange={(e) => setSelectedJamKe(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer font-mono"
             >
-              <option value="1">Jam Ke-1</option>
-              <option value="2">Jam Ke-2</option>
-              <option value="3">Jam Ke-3</option>
-              <option value="4">Jam Ke-4</option>
-              <option value="5">Jam Ke-5</option>
-              <option value="6">Jam Ke-6</option>
-              <option value="7">Jam Ke-7</option>
-              <option value="8">Jam Ke-8</option>
+              {availableJamOptions.map(jam => (
+                <option key={jam} value={jam}>Jam Ke-{jam}</option>
+              ))}
             </select>
           </div>
 
