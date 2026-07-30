@@ -136,17 +136,13 @@ export default function PresensiMassal({
     if (!isGuruNonAdmin) {
       if (allowedGuruMapels && allowedGuruMapels.length > 0) {
         allowedGuruMapels.forEach(m => { if (m && m.trim()) setM.add(m.trim()); });
-      } else if (appState.mataPelajaran && appState.mataPelajaran.length > 0) {
-        appState.mataPelajaran.forEach(m => {
-          if (m && m.nama && m.nama.trim()) setM.add(m.nama.trim());
-        });
       } else {
         ['Matematika', 'Bahasa Indonesia', 'Bahasa Inggris', 'IPA', 'IPS', 'Pendidikan Agama', 'PPKn', 'Informatika'].forEach(m => setM.add(m));
       }
     }
 
     return Array.from(setM).sort((a, b) => a.localeCompare(b, 'id'));
-  }, [allowedGuruMapels, currentGuruObj, isGuruNonAdmin, appState.kelas, appState.mataPelajaran]);
+  }, [allowedGuruMapels, currentGuruObj, isGuruNonAdmin, appState.kelas]);
 
   // Set default selectedMapel when options are available or when selectedMapel is invalid
   useEffect(() => {
@@ -218,9 +214,12 @@ export default function PresensiMassal({
 
   // Students matching selected Tingkat and Jurusan - STRICTLY ALPHABETICAL (A-Z)
   const classStudents = useMemo(() => {
-    return restrictedSiswaList
+    return (restrictedSiswaList || [])
       .filter(s => {
-        if (!s || s.status !== 'Aktif') return false;
+        if (!s) return false;
+        // Include student if status is missing, 'Aktif', 'aktif', or anything except explicitly 'Nonaktif' / 'nonaktif'
+        if (s.status && s.status.toLowerCase() === 'nonaktif') return false;
+
         const sKelas = (s.kelas || '').trim().toUpperCase();
 
         if (filterTingkat) {
@@ -235,7 +234,7 @@ export default function PresensiMassal({
 
         return true;
       })
-      .sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+      .sort((a, b) => (a?.nama || '').localeCompare(b?.nama || '', 'id'));
   }, [restrictedSiswaList, filterTingkat, filterJurusan]);
 
   // Search filter applied to classStudents
@@ -400,7 +399,7 @@ export default function PresensiMassal({
         
         // Preserve QR scan log status if not modified
         if (existingLog && existingLog.status.includes('QR') && targetStatus === 'Hadir (Manual)') {
-          targetStatus = existingLog.status;
+          targetStatus = existingLog.status as StatusType;
         }
 
         const newLog: AbsenLog = {

@@ -153,7 +153,7 @@ export default function KenaikanKelas({ kelasList, siswaList, onMigrate }: Kenai
     return a.localeCompare(b);
   });
 
-  const countStudents = siswaList.filter(s => s.status === 'Aktif' && parseTingkat(s.kelas) === sourceTingkat).length;
+  const countStudents = siswaList.filter(s => (!s.status || s.status.toLowerCase() !== 'nonaktif') && parseTingkat(s.kelas) === sourceTingkat).length;
 
   const handleMigrate = () => {
     setErrorMsg('');

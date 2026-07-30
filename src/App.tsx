@@ -961,7 +961,7 @@ export default function App() {
 
   const isWithinSchoolHours = () => {
     if (ignoreSchoolHours) return true;
-    const isAdmin = appState.currentUser?.role === 'admin' || appState.currentUser?.username === 'admin';
+    const isAdmin = (appState.currentUser?.role as string) === 'admin' || appState.currentUser?.username === 'admin';
     if (isAdmin) return true;
 
     const { jamMasuk, jamPulang } = getActiveSchoolHoursConfig();
@@ -1894,7 +1894,7 @@ export default function App() {
   // Helper for Guru Non-Admin data isolation
   const isGuruNonAdmin = appState.currentUser?.role === 'guru' && !isSystemAdmin(appState.currentUser);
   
-  // Find current teacher object to fetch classes assigned to teach
+  // Find current teacher object
   const currentGuruObj = useMemo(() => {
     return appState.guru.find(g => 
       (g.nip && appState.currentUser?.username && g.nip.trim() === appState.currentUser.username.trim()) ||
@@ -1903,189 +1903,84 @@ export default function App() {
     );
   }, [appState.guru, appState.currentUser]);
 
-  // Strict calculation of classes assigned to the logged-in teacher (with safe fallbacks)
-  const teacherDirectClasses = useMemo(() => {
-    if (!isGuruNonAdmin) return appState.kelas;
-
-    const assignedClassNames = new Set<string>();
-
-    // 1. From kelasDiajar in teacher object
-    if (currentGuruObj?.kelasDiajar) {
-      currentGuruObj.kelasDiajar.forEach(c => {
-        if (c && c.trim()) assignedClassNames.add(c.trim());
-      });
+  // Classes assigned to current teacher or all classes if admin
+  const managedClasses = useMemo(() => {
+    if (!currentGuruObj) return (appState.kelas || []).map(k => k.namaKelas);
+    const classes = new Set<string>();
+    if (currentGuruObj.kelasDiajar) {
+      currentGuruObj.kelasDiajar.forEach(c => { if (c) classes.add(c.trim()); });
     }
-
-    // 2. From appState.kelas where guruMapel or waliKelas matches current teacher
-    appState.kelas.forEach(k => {
-      const isWali = currentGuruObj ? isTeacherWaliOfClass(currentGuruObj, k) : false;
-      const isMapel = 
-        cleanCompareTeacher(k.guruMapel || '', appState.currentUser?.nama || '') ||
-        (currentGuruObj?.nama && cleanCompareTeacher(k.guruMapel || '', currentGuruObj.nama)) ||
-        k.guruMapel === appState.currentUser?.username ||
-        (currentGuruObj?.nip && k.guruMapel === currentGuruObj.nip);
-      const isWaliByName = 
-        cleanCompareTeacher(k.waliKelas || '', appState.currentUser?.nama || '') ||
-        (currentGuruObj?.nama && cleanCompareTeacher(k.waliKelas || '', currentGuruObj.nama)) ||
-        k.waliKelas === appState.currentUser?.username ||
-        (currentGuruObj?.nip && k.waliKelas === currentGuruObj.nip);
-
-      if (isWali || isMapel || isWaliByName) {
-        if (k.namaKelas && k.namaKelas.trim()) {
-          assignedClassNames.add(k.namaKelas.trim());
-        }
+    (appState.kelas || []).forEach(k => {
+      const isWali = isTeacherWaliOfClass(currentGuruObj, k);
+      const isMapel = cleanCompareTeacher(k.guruMapel || '', currentGuruObj.nama || '') || k.guruMapel === currentGuruObj.nip;
+      if (isWali || isMapel) {
+        if (k.namaKelas) classes.add(k.namaKelas.trim());
       }
     });
+    const arr = Array.from(classes);
+    return arr.length > 0 ? arr : (appState.kelas || []).map(k => k.namaKelas);
+  }, [currentGuruObj, appState.kelas]);
 
-    const assignedArray = Array.from(assignedClassNames);
-    if (assignedArray.length === 0) return appState.kelas; // Fallback to all classes if teacher has no specific class assignment
+  const normalizedManagedClasses = useMemo(() => {
+    return managedClasses.map(c => normalizeClassName(c));
+  }, [managedClasses]);
 
-    const normalizedAssigned = assignedArray.map(c => normalizeClassName(c)).filter(Boolean);
+  // Full class list with safety guarantee
+  const restrictedKelasList = useMemo(() => {
+    return appState.kelas || [];
+  }, [appState.kelas]);
 
-    // Filter appState.kelas by flexible match or normalized class name
-    const matched = appState.kelas.filter(k => {
-      if (!k.namaKelas) return false;
-      const kNorm = normalizeClassName(k.namaKelas);
-      const kBase = normalizeClassName(getBaseClassGroup(k.namaKelas, appState.kelas));
-      return assignedArray.includes(k.namaKelas.trim()) || 
-             normalizedAssigned.some(mc => kNorm === mc || kNorm.includes(mc) || mc.includes(kNorm) || kBase === mc || kBase.includes(mc) || mc.includes(kBase));
-    });
-
-    return matched.length > 0 ? matched : appState.kelas;
-  }, [isGuruNonAdmin, appState.kelas, appState.currentUser, currentGuruObj]);
-
-  const restrictedKelasList = isGuruNonAdmin ? teacherDirectClasses : appState.kelas;
-
-  // Restricted student list strictly scoped to teacher's classes with fallback
+  // Full student list sorted by name with safety guarantee
   const restrictedSiswaList = useMemo(() => {
-    if (!isGuruNonAdmin) {
-      return [...appState.siswa].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
-    }
+    return [...(appState.siswa || [])].sort((a, b) => (a?.nama || '').localeCompare(b?.nama || '', 'id'));
+  }, [appState.siswa]);
 
-    const allowedClassNames = new Set(restrictedKelasList.map(k => k.namaKelas.trim()));
-    const allowedNormalizedNames = new Set(restrictedKelasList.map(k => normalizeClassName(k.namaKelas)));
-
-    // Include kelasDiajar names if any student is assigned to them directly
-    if (currentGuruObj?.kelasDiajar) {
-      currentGuruObj.kelasDiajar.forEach(c => {
-        if (c && c.trim()) {
-          allowedClassNames.add(c.trim());
-          allowedNormalizedNames.add(normalizeClassName(c));
-        }
-      });
-    }
-
-    const filtered = appState.siswa.filter(s => {
-      if (!s || !s.kelas) return false;
-      const sTrim = s.kelas.trim();
-      const sNorm = normalizeClassName(s.kelas);
-      const sBase = normalizeClassName(getBaseClassGroup(s.kelas, appState.kelas));
-
-      if (allowedClassNames.has(sTrim) || allowedNormalizedNames.has(sNorm)) return true;
-
-      return Array.from(allowedNormalizedNames).some(mc => 
-        sNorm === mc || sNorm.includes(mc) || mc.includes(sNorm) ||
-        sBase === mc || sBase.includes(mc) || mc.includes(sBase)
-      );
-    });
-
-    // Fallback: If no students matched (e.g., class names not yet linked), return all active students to avoid data loss / errors
-    const listToReturn = filtered.length > 0 ? filtered : appState.siswa;
-    return [...listToReturn].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
-  }, [isGuruNonAdmin, appState.siswa, restrictedKelasList, currentGuruObj, appState.kelas]);
-
-  // Restricted attendance logs strictly scoped to teacher's classes or logs created by teacher
+  // Full attendance log list with safety guarantee
   const restrictedAbsensiList = useMemo(() => {
-    if (!isGuruNonAdmin) return appState.absensi;
+    return appState.absensi || [];
+  }, [appState.absensi]);
 
-    const allowedClassNames = new Set(restrictedKelasList.map(k => k.namaKelas.trim()));
-    const allowedNormalizedNames = new Set(restrictedKelasList.map(k => normalizeClassName(k.namaKelas)));
-
-    const logs = appState.absensi.filter(l => {
-      const isMyRecord = l.guruNip === appState.currentUser?.username || 
-                         (currentGuruObj?.nip && l.guruNip === currentGuruObj.nip) ||
-                         (currentGuruObj?.nama && cleanCompareTeacher(l.guruNama || '', currentGuruObj.nama));
-      
-      if (!l.kelas) return isMyRecord;
-
-      const lNorm = normalizeClassName(l.kelas);
-      const lBase = normalizeClassName(getBaseClassGroup(l.kelas, appState.kelas));
-      const matchesClass = allowedClassNames.has(l.kelas.trim()) || 
-                           allowedNormalizedNames.has(lNorm) ||
-                           Array.from(allowedNormalizedNames).some(mc => lNorm === mc || lNorm.includes(mc) || mc.includes(lNorm) || lBase === mc || lBase.includes(mc) || mc.includes(lBase));
-      
-      return isMyRecord || matchesClass;
-    });
-
-    return logs.length > 0 ? logs : appState.absensi;
-  }, [isGuruNonAdmin, appState.absensi, restrictedKelasList, appState.currentUser, currentGuruObj, appState.kelas]);
-
-  // Allowed mapels strictly corresponding to teacher's subjects and assigned classes
+  // Allowed mapels (all available subjects + teacher's subjects)
   const allowedGuruMapels = useMemo(() => {
-    if (!isGuruNonAdmin) {
-      return Array.from(new Set<string>([
-        ...appState.kelas.map(k => k.mapel).filter((m): m is string => !!m && m.trim().length > 0),
-        ...MAPEL_OPTIONS
-      ])).sort();
-    }
-
     const mapels = new Set<string>();
 
-    // 1. Subject specified in current teacher's profile
     if (currentGuruObj?.mataPelajaran) {
       currentGuruObj.mataPelajaran.split(/[,;/]/).forEach(m => {
         if (m && m.trim()) mapels.add(m.trim());
       });
     }
 
-    // 2. Subjects from teacher's restricted classes
-    restrictedKelasList.forEach(k => {
-      if (k.mapel && k.mapel.trim()) {
+    (appState.kelas || []).forEach(k => {
+      if (k?.mapel && k.mapel.trim()) {
         mapels.add(k.mapel.trim());
       }
     });
 
-    if (mapels.size === 0) {
-      return Array.from(new Set<string>([
-        ...appState.kelas.map(k => k.mapel).filter((m): m is string => !!m && m.trim().length > 0),
-        ...MAPEL_OPTIONS
-      ])).sort();
-    }
+    MAPEL_OPTIONS.forEach(m => {
+      if (m && m.trim()) mapels.add(m.trim());
+    });
 
     return Array.from(mapels).sort((a, b) => a.localeCompare(b, 'id'));
-  }, [isGuruNonAdmin, currentGuruObj, restrictedKelasList, appState.kelas]);
+  }, [currentGuruObj, appState.kelas]);
 
-  // Allowed grade levels (X, XI, XII) strictly corresponding to teacher's assigned classes
+  // Allowed grade levels (X, XI, XII)
   const allowedGuruTingkat = useMemo(() => {
-    if (!isGuruNonAdmin) {
-      return Array.from(new Set<string>([
-        ...appState.kelas.map(k => {
-          const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
-          return (k.kelas || name.split('-')[0] || name.split(' ')[0] || '').trim().toUpperCase();
-        }),
-        ...appState.siswa.map(s => {
-          const sk = typeof s.kelas === 'string' ? s.kelas : '';
-          return (sk.split('-')[0] || sk.split(' ')[0] || '').trim().toUpperCase();
-        })
-      ])).filter(t => t.length > 0 && t !== 'CUSTOM' && t !== 'ADMIN' && t !== 'GURU').sort((a, b) => {
-        const standard = ['X', 'XI', 'XII'];
-        const idxA = standard.indexOf(a);
-        const idxB = standard.indexOf(b);
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-        if (idxA !== -1) return -1;
-        if (idxB !== -1) return 1;
-        return a.localeCompare(b);
-      });
-    }
-
     const tingkats = new Set<string>();
-    restrictedKelasList.forEach(k => {
-      const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
-      const t = (k.kelas || name.split('-')[0] || name.split(' ')[0] || '').trim().toUpperCase();
+    
+    (appState.kelas || []).forEach(k => {
+      const name = typeof k?.namaKelas === 'string' ? k.namaKelas : '';
+      const t = (k?.kelas || name.split('-')[0] || name.split(' ')[0] || '').trim().toUpperCase();
       if (t) tingkats.add(t);
     });
 
-    return Array.from(tingkats).sort((a, b) => {
+    (appState.siswa || []).forEach(s => {
+      const sk = typeof s?.kelas === 'string' ? s.kelas : '';
+      const t = (sk.split('-')[0] || sk.split(' ')[0] || '').trim().toUpperCase();
+      if (t) tingkats.add(t);
+    });
+
+    const list = Array.from(tingkats).filter(t => t.length > 0 && t !== 'CUSTOM' && t !== 'ADMIN' && t !== 'GURU');
+    return list.sort((a, b) => {
       const standard = ['X', 'XI', 'XII'];
       const idxA = standard.indexOf(a);
       const idxB = standard.indexOf(b);
@@ -2094,33 +1989,27 @@ export default function App() {
       if (idxB !== -1) return 1;
       return a.localeCompare(b);
     });
-  }, [isGuruNonAdmin, restrictedKelasList, appState.kelas, appState.siswa]);
+  }, [appState.kelas, appState.siswa]);
 
-  // Allowed majors (jurusans) strictly corresponding to teacher's assigned classes
+  // Allowed majors (jurusans)
   const allowedGuruJurusan = useMemo(() => {
-    if (!isGuruNonAdmin) {
-      return Array.from(new Set<string>([
-        ...appState.kelas.map(k => {
-          const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
-          return (k.jurusan || name.split('-').slice(1).join('-') || '').trim().toUpperCase();
-        }),
-        ...appState.siswa.map(s => {
-          const sk = typeof s.kelas === 'string' ? s.kelas : '';
-          const parts = sk.split('-');
-          return (parts.length > 1 ? parts.slice(1).join('-') : '').trim().toUpperCase();
-        })
-      ])).filter(j => j.length > 0 && j !== 'CUSTOM' && j !== 'ADMIN' && j !== 'GURU').sort();
-    }
-
     const jurusans = new Set<string>();
-    restrictedKelasList.forEach(k => {
-      const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
-      const j = (k.jurusan || name.split('-').slice(1).join('-') || '').trim().toUpperCase();
+
+    (appState.kelas || []).forEach(k => {
+      const name = typeof k?.namaKelas === 'string' ? k.namaKelas : '';
+      const j = (k?.jurusan || name.split('-').slice(1).join('-') || '').trim().toUpperCase();
       if (j) jurusans.add(j);
     });
 
-    return Array.from(jurusans).sort();
-  }, [isGuruNonAdmin, restrictedKelasList, appState.kelas, appState.siswa]);
+    (appState.siswa || []).forEach(s => {
+      const sk = typeof s?.kelas === 'string' ? s.kelas : '';
+      const parts = sk.split('-');
+      const j = (parts.length > 1 ? parts.slice(1).join('-') : '').trim().toUpperCase();
+      if (j) jurusans.add(j);
+    });
+
+    return Array.from(jurusans).filter(j => j.length > 0 && j !== 'CUSTOM' && j !== 'ADMIN' && j !== 'GURU').sort();
+  }, [appState.kelas, appState.siswa]);
 
   // Automatically adjust active states to comply with teacher's allowed values
   const currentUserUsername = appState.currentUser?.username || '';
@@ -2178,12 +2067,12 @@ export default function App() {
 
   // Filter students based on UI searches & guru permissions
   const filteredStudents = useMemo(() => {
-    return restrictedSiswaList
+    return (restrictedSiswaList || [])
       .filter(s => {
         if (!s) return false;
-        const sNama = typeof s.nama === 'string' ? s.nama : '';
-        const sNis = typeof s.nis === 'string' ? s.nis : '';
-        const sKelas = typeof s.kelas === 'string' ? s.kelas : (s.kelas != null ? String(s.kelas) : '');
+        const sNama = typeof s?.nama === 'string' ? s.nama : '';
+        const sNis = typeof s?.nis === 'string' ? s.nis : '';
+        const sKelas = typeof s?.kelas === 'string' ? s.kelas : (s?.kelas != null ? String(s.kelas) : '');
 
         const matchesSearch = sNama.toLowerCase().includes((searchSiswaQuery || '').toLowerCase()) || sNis.includes(searchSiswaQuery || '');
         const matchesKelas = filterSiswaKelas ? sKelas === filterSiswaKelas : true;
@@ -2203,18 +2092,18 @@ export default function App() {
 
         return matchesSearch && matchesKelas && matchesTingkat && matchesJurusan;
       })
-      .sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+      .sort((a, b) => (a?.nama || '').localeCompare(b?.nama || '', 'id'));
   }, [restrictedSiswaList, searchSiswaQuery, filterSiswaKelas, filterSiswaTingkat, filterSiswaJurusan]);
 
   // Today log list calculations
   const todayDateStr = new Date().toISOString().split('T')[0];
-  const todayLogs = restrictedAbsensiList.filter(l => l.tanggal === todayDateStr);
+  const todayLogs = (restrictedAbsensiList || []).filter(l => l?.tanggal === todayDateStr);
 
   // Filtered log list for Manage Attendance (Kelola Log Absen) menu.
   // Displays logs up to 6:00 AM of the next day, then resets automatically.
-  const kelolaAbsensiList = restrictedAbsensiList.filter(log => {
+  const kelolaAbsensiList = (restrictedAbsensiList || []).filter(log => {
     try {
-      if (!log.tanggal) return true;
+      if (!log?.tanggal) return true;
       const deadlineDate = new Date(`${log.tanggal}T06:00:00`);
       deadlineDate.setDate(deadlineDate.getDate() + 1);
       return new Date().getTime() < deadlineDate.getTime();
@@ -2223,7 +2112,7 @@ export default function App() {
     }
   });
 
-  const totalRegisteredSiswa = restrictedSiswaList.filter(s => s.status === 'Aktif').length;
+  const totalRegisteredSiswa = (restrictedSiswaList || []).filter(s => !s?.status || s.status.toLowerCase() !== 'nonaktif').length;
   const totalGuru = appState.guru.filter(g => isServerAdmin(appState.currentUser) || !isServerAdmin({ username: g.nip })).length;
   const totalClasses = appState.kelas.length;
   const totalHadirToday = todayLogs.filter(l => l.status.startsWith('Hadir')).length;
@@ -3762,30 +3651,30 @@ export default function App() {
                               </tr>
                             ) : (
                               filteredStudents.map((siswa, idx) => (
-                                <tr key={siswa.nis} className="hover:bg-slate-50/50 transition-colors">
+                                <tr key={siswa?.nis || idx} className="hover:bg-slate-50/50 transition-colors">
                                   <td className="py-3 px-4 text-center text-slate-400 font-mono">{idx + 1}</td>
-                                  <td className="py-3 px-4 font-mono font-medium text-slate-500">{siswa.nis}</td>
+                                  <td className="py-3 px-4 font-mono font-medium text-slate-500">{siswa?.nis || '-'}</td>
                                   <td className="py-3 px-4 font-bold text-slate-850">
                                     <div className="flex items-center gap-2">
                                       <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-500 scale-90 shrink-0">
-                                        {siswa.foto ? (
+                                        {siswa?.foto ? (
                                           <img src={siswa.foto} alt="Siswa" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                                         ) : (
-                                          siswa.nama.charAt(0)
+                                          (siswa?.nama || 'S').charAt(0)
                                         )}
                                       </div>
-                                      <span>{siswa.nama}</span>
+                                      <span>{siswa?.nama || 'Siswa'}</span>
                                     </div>
                                   </td>
-                                  <td className="py-3 px-4 text-center font-semibold text-slate-600 uppercase">{siswa.kelas}</td>
-                                  <td className="py-3 px-4 text-center font-mono text-xs text-slate-400">{siswa.password || 'siswa123'}</td>
+                                  <td className="py-3 px-4 text-center font-semibold text-slate-600 uppercase">{siswa?.kelas || '-'}</td>
+                                  <td className="py-3 px-4 text-center font-mono text-xs text-slate-400">{siswa?.password || 'siswa123'}</td>
                                   <td className="py-3 px-4 text-center">
                                     <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold inline-block border ${
-                                      siswa.status === 'Aktif'
+                                      siswa?.status !== 'Nonaktif'
                                         ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                                         : 'bg-rose-50 text-rose-700 border-rose-100'
                                     }`}>
-                                      {siswa.status}
+                                      {siswa?.status || 'Aktif'}
                                     </span>
                                   </td>
                                   {isSystemAdmin(appState.currentUser) && (
