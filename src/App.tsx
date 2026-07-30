@@ -1903,7 +1903,7 @@ export default function App() {
     );
   }, [appState.guru, appState.currentUser]);
 
-  // Strict calculation of classes assigned to the logged-in teacher
+  // Strict calculation of classes assigned to the logged-in teacher (with safe fallbacks)
   const teacherDirectClasses = useMemo(() => {
     if (!isGuruNonAdmin) return appState.kelas;
 
@@ -1938,21 +1938,25 @@ export default function App() {
     });
 
     const assignedArray = Array.from(assignedClassNames);
-    if (assignedArray.length === 0) return [];
+    if (assignedArray.length === 0) return appState.kelas; // Fallback to all classes if teacher has no specific class assignment
 
     const normalizedAssigned = assignedArray.map(c => normalizeClassName(c)).filter(Boolean);
 
-    // Filter appState.kelas strictly by exact match or exact normalized class name
-    return appState.kelas.filter(k => {
+    // Filter appState.kelas by flexible match or normalized class name
+    const matched = appState.kelas.filter(k => {
       if (!k.namaKelas) return false;
       const kNorm = normalizeClassName(k.namaKelas);
-      return assignedArray.includes(k.namaKelas.trim()) || normalizedAssigned.includes(kNorm);
+      const kBase = normalizeClassName(getBaseClassGroup(k.namaKelas, appState.kelas));
+      return assignedArray.includes(k.namaKelas.trim()) || 
+             normalizedAssigned.some(mc => kNorm === mc || kNorm.includes(mc) || mc.includes(kNorm) || kBase === mc || kBase.includes(mc) || mc.includes(kBase));
     });
+
+    return matched.length > 0 ? matched : appState.kelas;
   }, [isGuruNonAdmin, appState.kelas, appState.currentUser, currentGuruObj]);
 
   const restrictedKelasList = isGuruNonAdmin ? teacherDirectClasses : appState.kelas;
 
-  // Restricted student list strictly scoped to teacher's classes
+  // Restricted student list strictly scoped to teacher's classes with fallback
   const restrictedSiswaList = useMemo(() => {
     if (!isGuruNonAdmin) {
       return [...appState.siswa].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
@@ -1972,13 +1976,23 @@ export default function App() {
     }
 
     const filtered = appState.siswa.filter(s => {
-      if (!s.kelas) return false;
+      if (!s || !s.kelas) return false;
+      const sTrim = s.kelas.trim();
       const sNorm = normalizeClassName(s.kelas);
-      return allowedClassNames.has(s.kelas.trim()) || allowedNormalizedNames.has(sNorm);
+      const sBase = normalizeClassName(getBaseClassGroup(s.kelas, appState.kelas));
+
+      if (allowedClassNames.has(sTrim) || allowedNormalizedNames.has(sNorm)) return true;
+
+      return Array.from(allowedNormalizedNames).some(mc => 
+        sNorm === mc || sNorm.includes(mc) || mc.includes(sNorm) ||
+        sBase === mc || sBase.includes(mc) || mc.includes(sBase)
+      );
     });
 
-    return filtered.sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
-  }, [isGuruNonAdmin, appState.siswa, restrictedKelasList, currentGuruObj]);
+    // Fallback: If no students matched (e.g., class names not yet linked), return all active students to avoid data loss / errors
+    const listToReturn = filtered.length > 0 ? filtered : appState.siswa;
+    return [...listToReturn].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+  }, [isGuruNonAdmin, appState.siswa, restrictedKelasList, currentGuruObj, appState.kelas]);
 
   // Restricted attendance logs strictly scoped to teacher's classes or logs created by teacher
   const restrictedAbsensiList = useMemo(() => {
@@ -1987,7 +2001,7 @@ export default function App() {
     const allowedClassNames = new Set(restrictedKelasList.map(k => k.namaKelas.trim()));
     const allowedNormalizedNames = new Set(restrictedKelasList.map(k => normalizeClassName(k.namaKelas)));
 
-    return appState.absensi.filter(l => {
+    const logs = appState.absensi.filter(l => {
       const isMyRecord = l.guruNip === appState.currentUser?.username || 
                          (currentGuruObj?.nip && l.guruNip === currentGuruObj.nip) ||
                          (currentGuruObj?.nama && cleanCompareTeacher(l.guruNama || '', currentGuruObj.nama));
@@ -1995,11 +2009,16 @@ export default function App() {
       if (!l.kelas) return isMyRecord;
 
       const lNorm = normalizeClassName(l.kelas);
-      const matchesClass = allowedClassNames.has(l.kelas.trim()) || allowedNormalizedNames.has(lNorm);
+      const lBase = normalizeClassName(getBaseClassGroup(l.kelas, appState.kelas));
+      const matchesClass = allowedClassNames.has(l.kelas.trim()) || 
+                           allowedNormalizedNames.has(lNorm) ||
+                           Array.from(allowedNormalizedNames).some(mc => lNorm === mc || lNorm.includes(mc) || mc.includes(lNorm) || lBase === mc || lBase.includes(mc) || mc.includes(lBase));
       
       return isMyRecord || matchesClass;
     });
-  }, [isGuruNonAdmin, appState.absensi, restrictedKelasList, appState.currentUser, currentGuruObj]);
+
+    return logs.length > 0 ? logs : appState.absensi;
+  }, [isGuruNonAdmin, appState.absensi, restrictedKelasList, appState.currentUser, currentGuruObj, appState.kelas]);
 
   // Allowed mapels strictly corresponding to teacher's subjects and assigned classes
   const allowedGuruMapels = useMemo(() => {
@@ -2025,6 +2044,13 @@ export default function App() {
         mapels.add(k.mapel.trim());
       }
     });
+
+    if (mapels.size === 0) {
+      return Array.from(new Set<string>([
+        ...appState.kelas.map(k => k.mapel).filter((m): m is string => !!m && m.trim().length > 0),
+        ...MAPEL_OPTIONS
+      ])).sort();
+    }
 
     return Array.from(mapels).sort((a, b) => a.localeCompare(b, 'id'));
   }, [isGuruNonAdmin, currentGuruObj, restrictedKelasList, appState.kelas]);
