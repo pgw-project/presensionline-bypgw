@@ -72,9 +72,6 @@ export default function PresensiMassal({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  // Scan Status Filter Mode: 'BELUM_SCAN' (default focus), 'SUDAH_SCAN', or 'SEMUA'
-  const [scanFilterMode, setScanFilterMode] = useState<'BELUM_SCAN' | 'SUDAH_SCAN' | 'SEMUA'>('BELUM_SCAN');
-
   // Available Mapel options strictly corresponding to subjects taught by the teacher
   const teacherMapelOptions = useMemo(() => {
     const setM = new Set<string>();
@@ -132,17 +129,19 @@ export default function PresensiMassal({
       return Array.from(setM).sort((a, b) => a.localeCompare(b, 'id'));
     }
 
-    // Fallback ONLY when Admin or no teacher profile is assigned at all
-    if (!isGuruNonAdmin) {
-      if (allowedGuruMapels && allowedGuruMapels.length > 0) {
-        allowedGuruMapels.forEach(m => { if (m && m.trim()) setM.add(m.trim()); });
-      } else {
-        ['Matematika', 'Bahasa Indonesia', 'Bahasa Inggris', 'IPA', 'IPS', 'Pendidikan Agama', 'PPKn', 'Informatika'].forEach(m => setM.add(m));
-      }
+    // Fallback ONLY when no teacher profile or no specific mapel is assigned at all
+    if (allowedGuruMapels && allowedGuruMapels.length > 0) {
+      allowedGuruMapels.forEach(m => { if (m && m.trim()) setM.add(m.trim()); });
+    } else if (appState.mataPelajaran && appState.mataPelajaran.length > 0) {
+      appState.mataPelajaran.forEach(m => {
+        if (m && m.nama && m.nama.trim()) setM.add(m.nama.trim());
+      });
+    } else {
+      ['Matematika', 'Bahasa Indonesia', 'Bahasa Inggris', 'IPA', 'IPS', 'Pendidikan Agama', 'PPKn', 'Informatika'].forEach(m => setM.add(m));
     }
 
     return Array.from(setM).sort((a, b) => a.localeCompare(b, 'id'));
-  }, [allowedGuruMapels, currentGuruObj, isGuruNonAdmin, appState.kelas]);
+  }, [allowedGuruMapels, currentGuruObj, isGuruNonAdmin, appState.kelas, appState.mataPelajaran]);
 
   // Set default selectedMapel when options are available or when selectedMapel is invalid
   useEffect(() => {
@@ -153,73 +152,32 @@ export default function PresensiMassal({
     }
   }, [teacherMapelOptions, selectedMapel]);
 
-  // Available Tingkat options strictly scoped to teacher
+  // Available Tingkat options
   const availableTingkats = useMemo(() => {
-    if (isGuruNonAdmin) return allowedGuruTingkat || [];
+    if (allowedGuruTingkat && allowedGuruTingkat.length > 0) return allowedGuruTingkat;
     const setT = new Set<string>();
     restrictedKelasList.forEach(k => {
       const t = k.kelas || (k.namaKelas || '').split('-')[0];
       if (t) setT.add(t.toUpperCase());
     });
     return Array.from(setT).sort();
-  }, [isGuruNonAdmin, allowedGuruTingkat, restrictedKelasList]);
+  }, [allowedGuruTingkat, restrictedKelasList]);
 
-  // Available Jurusan options strictly scoped to teacher
+  // Available Jurusan options
   const availableJurusans = useMemo(() => {
-    if (isGuruNonAdmin) return allowedGuruJurusan || [];
+    if (allowedGuruJurusan && allowedGuruJurusan.length > 0) return allowedGuruJurusan;
     const setJ = new Set<string>();
     restrictedKelasList.forEach(k => {
       if (k.jurusan) setJ.add(k.jurusan.toUpperCase());
     });
     return Array.from(setJ).sort();
-  }, [isGuruNonAdmin, allowedGuruJurusan, restrictedKelasList]);
-
-  // Available Jam Ke options (default Jam Ke-1 s/d Jam Ke-4)
-  const availableJamOptions = useMemo(() => {
-    let maxJam = 4;
-    (appState.absensi || []).forEach(log => {
-      const num = parseInt(log.jamKe || '0', 10);
-      if (!isNaN(num) && num > maxJam) {
-        maxJam = num;
-      }
-    });
-    const options: string[] = [];
-    for (let i = 1; i <= maxJam; i++) {
-      options.push(i.toString());
-    }
-    return options;
-  }, [appState.absensi]);
-
-  // Auto-select Tingkat if only 1 option or current selection invalid
-  useEffect(() => {
-    if (availableTingkats.length === 1) {
-      if (filterTingkat !== availableTingkats[0]) {
-        setFilterTingkat(availableTingkats[0]);
-      }
-    } else if (filterTingkat && !availableTingkats.includes(filterTingkat)) {
-      setFilterTingkat('');
-    }
-  }, [availableTingkats, filterTingkat]);
-
-  // Auto-select Jurusan if only 1 option or current selection invalid
-  useEffect(() => {
-    if (availableJurusans.length === 1) {
-      if (filterJurusan !== availableJurusans[0]) {
-        setFilterJurusan(availableJurusans[0]);
-      }
-    } else if (filterJurusan && !availableJurusans.includes(filterJurusan)) {
-      setFilterJurusan('');
-    }
-  }, [availableJurusans, filterJurusan]);
+  }, [allowedGuruJurusan, restrictedKelasList]);
 
   // Students matching selected Tingkat and Jurusan - STRICTLY ALPHABETICAL (A-Z)
   const classStudents = useMemo(() => {
-    return (restrictedSiswaList || [])
+    return restrictedSiswaList
       .filter(s => {
-        if (!s) return false;
-        // Include student if status is missing, 'Aktif', 'aktif', or anything except explicitly 'Nonaktif' / 'nonaktif'
-        if (s.status && s.status.toLowerCase() === 'nonaktif') return false;
-
+        if (!s || s.status !== 'Aktif') return false;
         const sKelas = (s.kelas || '').trim().toUpperCase();
 
         if (filterTingkat) {
@@ -234,7 +192,7 @@ export default function PresensiMassal({
 
         return true;
       })
-      .sort((a, b) => (a?.nama || '').localeCompare(b?.nama || '', 'id'));
+      .sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
   }, [restrictedSiswaList, filterTingkat, filterJurusan]);
 
   // Search filter applied to classStudents
@@ -245,49 +203,6 @@ export default function PresensiMassal({
       s.nama.toLowerCase().includes(q) || s.nis.includes(q)
     );
   }, [classStudents, searchQuery]);
-
-  // Map student NIS to existing scan/attendance log for selectedDate, selectedJamKe, selectedMapel
-  const studentScanLogs = useMemo(() => {
-    const map: Record<string, AbsenLog | undefined> = {};
-    classStudents.forEach(siswa => {
-      const existingLog = appState.absensi.find(log => 
-        log.nis === siswa.nis &&
-        log.tanggal === selectedDate &&
-        (log.jamKe || '1') === selectedJamKe &&
-        (!selectedMapel || !log.mataPelajaran || (log.mataPelajaran || '').trim().toLowerCase() === selectedMapel.trim().toLowerCase())
-      );
-      map[siswa.nis] = existingLog;
-    });
-    return map;
-  }, [classStudents, appState.absensi, selectedDate, selectedJamKe, selectedMapel]);
-
-  // Counts for scan status
-  const scanStats = useMemo(() => {
-    let belumScanCount = 0;
-    let sudahScanCount = 0;
-    classStudents.forEach(s => {
-      if (studentScanLogs[s.nis]) {
-        sudahScanCount++;
-      } else {
-        belumScanCount++;
-      }
-    });
-    return { belumScanCount, sudahScanCount, total: classStudents.length };
-  }, [classStudents, studentScanLogs]);
-
-  // Displayed students based on search query AND scanFilterMode
-  const displayedStudents = useMemo(() => {
-    return filteredStudents.filter(siswa => {
-      const existingLog = studentScanLogs[siswa.nis];
-      if (scanFilterMode === 'BELUM_SCAN') {
-        return !existingLog;
-      }
-      if (scanFilterMode === 'SUDAH_SCAN') {
-        return !!existingLog;
-      }
-      return true; // 'SEMUA'
-    });
-  }, [filteredStudents, studentScanLogs, scanFilterMode]);
 
   // Attendance status map: NIS -> StatusType
   const [statusMap, setStatusMap] = useState<Record<string, StatusType>>({});
@@ -301,7 +216,12 @@ export default function PresensiMassal({
 
     const initialMap: Record<string, StatusType> = {};
     classStudents.forEach(siswa => {
-      const existingLog = studentScanLogs[siswa.nis];
+      const existingLog = appState.absensi.find(log => 
+        log.nis === siswa.nis &&
+        log.tanggal === selectedDate &&
+        (log.jamKe || '1') === selectedJamKe &&
+        (!selectedMapel || !log.mataPelajaran || (log.mataPelajaran || '').trim().toLowerCase() === selectedMapel.trim().toLowerCase())
+      );
 
       if (existingLog) {
         let st: StatusType = 'Hadir (Manual)';
@@ -317,21 +237,17 @@ export default function PresensiMassal({
     });
 
     setStatusMap(initialMap);
-  }, [classStudents, studentScanLogs]);
+  }, [classStudents, selectedDate, selectedJamKe, selectedMapel, appState.absensi]);
 
-  // Mass action setter (applies to currently displayed students or unscanned students)
+  // Mass action setter
   const handleSetAllStatus = (targetStatus: StatusType) => {
-    if (displayedStudents.length === 0) return;
+    if (classStudents.length === 0) return;
     const updatedMap = { ...statusMap };
-    displayedStudents.forEach(s => {
-      const scanLog = studentScanLogs[s.nis];
-      // Do not overwrite QR scan logs unless teacher explicitly changes row individually
-      if (!scanLog || !scanLog.status.includes('QR')) {
-        updatedMap[s.nis] = targetStatus;
-      }
+    classStudents.forEach(s => {
+      updatedMap[s.nis] = targetStatus;
     });
     setStatusMap(updatedMap);
-    triggerToast(`Siswa tampil (${displayedStudents.length}) di-set ke status: ${targetStatus.split(' ')[0]}`, 'info');
+    triggerToast(`Seluruh murid (${classStudents.length}) di-set ke status: ${targetStatus.split(' ')[0]}`, 'info');
   };
 
   const handleStudentStatusChange = (nis: string, status: StatusType) => {
@@ -394,17 +310,18 @@ export default function PresensiMassal({
           }
         }
 
-        const existingLog = studentScanLogs[student.nis];
-        let targetStatus = statusMap[student.nis] || 'Hadir (Manual)';
-        
-        // Preserve QR scan log status if not modified
-        if (existingLog && existingLog.status.includes('QR') && targetStatus === 'Hadir (Manual)') {
-          targetStatus = existingLog.status as StatusType;
-        }
+        const targetStatus = statusMap[student.nis] || 'Hadir (Manual)';
+
+        const existingLog = appState.absensi.find(log => 
+          log.nis === student.nis &&
+          log.tanggal === selectedDate &&
+          (log.jamKe || '1') === selectedJamKe &&
+          (!log.mataPelajaran || (log.mataPelajaran || '').trim().toLowerCase() === currentMapelName.trim().toLowerCase())
+        );
 
         const newLog: AbsenLog = {
           id: existingLog ? existingLog.id : `log_${Date.now()}_${student.nis}_${Math.random().toString(36).substr(2, 4)}`,
-          timestamp: existingLog?.timestamp || dObj.toISOString(),
+          timestamp: dObj.toISOString(),
           tanggal: selectedDate,
           bulan: monthStr,
           nis: student.nis,
@@ -542,9 +459,14 @@ export default function PresensiMassal({
               onChange={(e) => setSelectedJamKe(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer font-mono"
             >
-              {availableJamOptions.map(jam => (
-                <option key={jam} value={jam}>Jam Ke-{jam}</option>
-              ))}
+              <option value="1">Jam Ke-1</option>
+              <option value="2">Jam Ke-2</option>
+              <option value="3">Jam Ke-3</option>
+              <option value="4">Jam Ke-4</option>
+              <option value="5">Jam Ke-5</option>
+              <option value="6">Jam Ke-6</option>
+              <option value="7">Jam Ke-7</option>
+              <option value="8">Jam Ke-8</option>
             </select>
           </div>
 
@@ -624,76 +546,6 @@ export default function PresensiMassal({
         </div>
       </div>
 
-      {/* TAB FILTER MODES FOR SCAN SYNC */}
-      <div className="bg-slate-50 border border-slate-200/80 p-2 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-          <button
-            type="button"
-            onClick={() => setScanFilterMode('BELUM_SCAN')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
-              scanFilterMode === 'BELUM_SCAN'
-                ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-500/30'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-200 animate-pulse" />
-            <span>Belum Scan / Absen</span>
-            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold ${
-              scanFilterMode === 'BELUM_SCAN' ? 'bg-amber-600 text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
-              {scanStats.belumScanCount}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setScanFilterMode('SUDAH_SCAN')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
-              scanFilterMode === 'SUDAH_SCAN'
-                ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-600/30'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Check className="w-4 h-4 stroke-[3]" />
-            <span>Sudah Scan QR</span>
-            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold ${
-              scanFilterMode === 'SUDAH_SCAN' ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
-              {scanStats.sudahScanCount}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setScanFilterMode('SEMUA')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
-              scanFilterMode === 'SEMUA'
-                ? 'bg-slate-800 text-white shadow-md ring-2 ring-slate-800/30'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Semua Siswa</span>
-            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold ${
-              scanFilterMode === 'SEMUA' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
-              {scanStats.total}
-            </span>
-          </button>
-        </div>
-
-        <div className="text-[11px] font-bold text-slate-500 px-3 flex items-center gap-1.5">
-          <Info className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>
-            {scanFilterMode === 'BELUM_SCAN' 
-              ? 'Menampilkan siswa yang belum scan QR untuk diberi status (Sakit/Izin/Alfa).' 
-              : scanFilterMode === 'SUDAH_SCAN'
-              ? 'Menampilkan siswa yang telah terekam scan barcode.'
-              : 'Menampilkan seluruh siswa terdaftar.'}
-          </span>
-        </div>
-      </div>
-
       {/* SUMMARY BADGES */}
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
         <div className="bg-white border border-slate-100 rounded-2xl p-3 shadow-xs text-center">
@@ -741,7 +593,7 @@ export default function PresensiMassal({
                       type="button"
                       onClick={() => handleSetAllStatus('Hadir (Manual)')}
                       className="text-[9px] bg-emerald-600 text-white px-2 py-0.5 rounded-md hover:bg-emerald-700 cursor-pointer font-bold shadow-xs"
-                      title="Set Semua Siswa Tampil Hadir"
+                      title="Set Semua Siswa Hadir"
                     >
                       Set Semua
                     </button>
@@ -756,7 +608,7 @@ export default function PresensiMassal({
                       type="button"
                       onClick={() => handleSetAllStatus('Alfa')}
                       className="text-[9px] bg-rose-600 text-white px-2 py-0.5 rounded-md hover:bg-rose-700 cursor-pointer font-bold shadow-xs"
-                      title="Set Semua Siswa Tampil Absen"
+                      title="Set Semua Siswa Absen"
                     >
                       Set Semua
                     </button>
@@ -771,7 +623,7 @@ export default function PresensiMassal({
                       type="button"
                       onClick={() => handleSetAllStatus('Sakit')}
                       className="text-[9px] bg-blue-600 text-white px-2 py-0.5 rounded-md hover:bg-blue-700 cursor-pointer font-bold shadow-xs"
-                      title="Set Semua Siswa Tampil Sakit"
+                      title="Set Semua Siswa Sakit"
                     >
                       Set Semua
                     </button>
@@ -786,7 +638,7 @@ export default function PresensiMassal({
                       type="button"
                       onClick={() => handleSetAllStatus('Izin')}
                       className="text-[9px] bg-amber-600 text-white px-2 py-0.5 rounded-md hover:bg-amber-700 cursor-pointer font-bold shadow-xs"
-                      title="Set Semua Siswa Tampil Izin"
+                      title="Set Semua Siswa Izin"
                     >
                       Set Semua
                     </button>
@@ -801,7 +653,7 @@ export default function PresensiMassal({
                       type="button"
                       onClick={() => handleSetAllStatus('Bolos')}
                       className="text-[9px] bg-purple-600 text-white px-2 py-0.5 rounded-md hover:bg-purple-700 cursor-pointer font-bold shadow-xs"
-                      title="Set Semua Siswa Tampil Bolos"
+                      title="Set Semua Siswa Bolos"
                     >
                       Set Semua
                     </button>
@@ -811,20 +663,17 @@ export default function PresensiMassal({
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {displayedStudents.length === 0 ? (
+              {filteredStudents.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
-                    {scanFilterMode === 'BELUM_SCAN' && scanStats.belumScanCount === 0
-                      ? '🎉 Luar biasa! Seluruh siswa dalam kelas ini sudah selesai melakukan pemindaian barcode.'
-                      : classStudents.length === 0 
+                    {classStudents.length === 0 
                       ? 'Tidak ada data murid aktif terdaftar sesuai kriteria filter saat ini.'
-                      : `Tidak ada murid yang cocok dengan filter atau kata kunci "${searchQuery}".`}
+                      : `Tidak ada murid yang cocok dengan kata kunci "${searchQuery}".`}
                   </td>
                 </tr>
               ) : (
-                displayedStudents.map((siswa, idx) => {
+                filteredStudents.map((siswa, idx) => {
                   const currentStatus = statusMap[siswa.nis] || 'Hadir (Manual)';
-                  const scanLog = studentScanLogs[siswa.nis];
 
                   return (
                     <tr key={siswa.nis} className="hover:bg-slate-50/80 transition-colors">
@@ -839,20 +688,7 @@ export default function PresensiMassal({
                               siswa.nama.charAt(0)
                             )}
                           </div>
-                          <div className="flex flex-col">
-                            <span className="text-slate-900 font-bold text-xs">{siswa.nama}</span>
-                            {scanLog ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/80 w-fit mt-0.5">
-                                <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
-                                <span>Scan QR ({scanLog.timestamp ? new Date(scanLog.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : 'Hadir'})</span>
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/80 w-fit mt-0.5">
-                                <Clock className="w-2.5 h-2.5 text-amber-600" />
-                                <span>Belum Scan Barcode</span>
-                              </span>
-                            )}
-                          </div>
+                          <span className="text-slate-900 font-bold text-xs">{siswa.nama}</span>
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-center font-bold text-xs text-slate-600 uppercase">

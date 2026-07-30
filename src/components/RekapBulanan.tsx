@@ -175,7 +175,7 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
   const classStudents = siswaList.filter(s => {
     if (!s) return false;
     const sKelas = typeof s.kelas === 'string' ? s.kelas : (s.kelas != null ? String(s.kelas) : '');
-    const matchesStatus = !s.status || s.status.toLowerCase() !== 'nonaktif';
+    const matchesStatus = s.status === 'Aktif';
     const matchesKelas = selectedKelas ? sKelas.trim().toUpperCase() === selectedKelas.trim().toUpperCase() : true;
 
     let matchesTingkat = true;
