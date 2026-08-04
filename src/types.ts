@@ -2,6 +2,8 @@ export interface Siswa {
   nis: string;
   nama: string;
   kelas: string;
+  jurusan?: string;
+  guruNip?: string;
   password?: string;
   status: 'Aktif' | 'Nonaktif';
   foto?: string;

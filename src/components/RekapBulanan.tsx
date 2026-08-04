@@ -9,9 +9,20 @@ interface RekapBulananProps {
   absensiList: AbsenLog[];
   kelasList: Kelas[];
   holidays: SystemHoliday[];
+  allowedGuruMapels?: string[];
+  allowedGuruTingkat?: string[];
+  allowedGuruJurusan?: string[];
 }
 
-export default function RekapBulanan({ siswaList, absensiList, kelasList, holidays = [] }: RekapBulananProps) {
+export default function RekapBulanan({ 
+  siswaList, 
+  absensiList, 
+  kelasList, 
+  holidays = [],
+  allowedGuruMapels = [],
+  allowedGuruTingkat = [],
+  allowedGuruJurusan = []
+}: RekapBulananProps) {
   const [selectedBulan, setSelectedBulan] = useState<string>(() => {
     return new Date().toLocaleString('id-ID', { month: 'long', year: 'numeric' });
   });
@@ -46,55 +57,61 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
   const isFutureMonthSelected = isMonthInFuture(selectedBulan);
 
   // Extract unique subjects that have entries in the logs and class management
-  const availableMapels = Array.from(new Set<string>([
-    ...absensiList.map(l => l.mataPelajaran).filter(Boolean),
-    ...kelasList.map(k => k.mapel).filter(Boolean)
-  ])).map(m => m.trim()).filter(Boolean).sort();
+  const availableMapels = (allowedGuruMapels && allowedGuruMapels.length > 0)
+    ? allowedGuruMapels
+    : Array.from(new Set<string>([
+        ...absensiList.map(l => l.mataPelajaran).filter(Boolean),
+        ...kelasList.map(k => k.mapel).filter(Boolean)
+      ])).map(m => m.trim()).filter(Boolean).sort();
 
   // Extract unique grade levels dynamically from database input
-  const availableTingkats = Array.from(new Set<string>([
-    ...kelasList.map(k => k.kelas).filter(Boolean),
-    ...kelasList.map(k => {
-      const name = (k.namaKelas || '').trim().toUpperCase();
-      const parts = name.split(/[\s\-]+/);
-      return parts[0] || '';
-    }).filter(Boolean),
-    ...siswaList.map(s => {
-      const name = (s.kelas || '').trim().toUpperCase();
-      const parts = name.split(/[\s\-]+/);
-      return parts[0] || '';
-    }).filter(Boolean)
-  ])).filter(Boolean).sort((a, b) => {
-    const standard = ['X', 'XI', 'XII', '10', '11', '12', '1', '2', '3'];
-    const idxA = standard.indexOf(a);
-    const idxB = standard.indexOf(b);
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-    if (idxA !== -1) return -1;
-    if (idxB !== -1) return 1;
-    return a.localeCompare(b);
-  });
+  const availableTingkats = (allowedGuruTingkat && allowedGuruTingkat.length > 0)
+    ? allowedGuruTingkat
+    : Array.from(new Set<string>([
+        ...kelasList.map(k => k.kelas).filter(Boolean),
+        ...kelasList.map(k => {
+          const name = (k.namaKelas || '').trim().toUpperCase();
+          const parts = name.split(/[\s\-]+/);
+          return parts[0] || '';
+        }).filter(Boolean),
+        ...siswaList.map(s => {
+          const name = (s.kelas || '').trim().toUpperCase();
+          const parts = name.split(/[\s\-]+/);
+          return parts[0] || '';
+        }).filter(Boolean)
+      ])).filter(Boolean).sort((a, b) => {
+        const standard = ['X', 'XI', 'XII', '10', '11', '12', '1', '2', '3'];
+        const idxA = standard.indexOf(a);
+        const idxB = standard.indexOf(b);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.localeCompare(b);
+      });
 
   // Extract unique majors/jurusans dynamically from database input
-  const availableJurusans = Array.from(new Set<string>([
-    ...kelasList.map(k => k.jurusan).filter(Boolean),
-    ...kelasList.map(k => {
-      if (k.jurusan) return k.jurusan;
-      const parts = (k.namaKelas || '').split(/[\s\-_]+/);
-      const majorPart = parts.find(p => {
-        const u = p.toUpperCase().trim();
-        return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
-      });
-      return majorPart || '';
-    }).filter(Boolean),
-    ...siswaList.map(s => {
-      const parts = (s.kelas || '').split(/[\s\-_]+/);
-      const majorPart = parts.find(p => {
-        const u = p.toUpperCase().trim();
-        return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
-      });
-      return majorPart || '';
-    }).filter(Boolean),
-  ])).map(j => j.toUpperCase().trim()).filter(Boolean).sort();
+  const availableJurusans = (allowedGuruJurusan && allowedGuruJurusan.length > 0)
+    ? allowedGuruJurusan
+    : Array.from(new Set<string>([
+        ...kelasList.map(k => k.jurusan).filter(Boolean),
+        ...kelasList.map(k => {
+          if (k.jurusan) return k.jurusan;
+          const parts = (k.namaKelas || '').split(/[\s\-_]+/);
+          const majorPart = parts.find(p => {
+            const u = p.toUpperCase().trim();
+            return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
+          });
+          return majorPart || '';
+        }).filter(Boolean),
+        ...siswaList.map(s => {
+          const parts = (s.kelas || '').split(/[\s\-_]+/);
+          const majorPart = parts.find(p => {
+            const u = p.toUpperCase().trim();
+            return u && u !== 'X' && u !== 'XI' && u !== 'XII' && !/^\d+$/.test(u);
+          });
+          return majorPart || '';
+        }).filter(Boolean),
+      ])).map(j => j.toUpperCase().trim()).filter(Boolean).sort();
 
   // Extract unique months from attendance logs (excluding future months)
   const getAvailableMonths = () => {
@@ -187,9 +204,13 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
                        cleanKelas.startsWith(targetTingkat + ' ');
     }
 
-    const matchesJurusan = filterJurusan 
-      ? sKelas.toUpperCase().includes(filterJurusan.toUpperCase()) 
-      : true;
+    let matchesJurusan = true;
+    if (filterJurusan) {
+      const normKelas = sKelas.toUpperCase().trim().replace(/[\s_]+/g, '-');
+      const normJur = filterJurusan.toUpperCase().trim().replace(/[\s_]+/g, '-');
+      const studentJur = (s.jurusan || '').toUpperCase().trim().replace(/[\s_]+/g, '-');
+      matchesJurusan = normKelas.includes(normJur) || studentJur.includes(normJur);
+    }
 
     return matchesStatus && matchesKelas && matchesTingkat && matchesJurusan;
   });
@@ -212,7 +233,12 @@ export default function RekapBulanan({ siswaList, absensiList, kelasList, holida
                          cleanK.startsWith(targetTingkat + ' ');
         }
 
-        const matchJurusan = filterJurusan ? logKelas.trim().toUpperCase().includes(filterJurusan.toUpperCase()) : true;
+        let matchJurusan = true;
+        if (filterJurusan) {
+          const normK = logKelas.trim().toUpperCase().replace(/[\s_]+/g, '-');
+          const normJ = filterJurusan.trim().toUpperCase().replace(/[\s_]+/g, '-');
+          matchJurusan = normK.includes(normJ);
+        }
         const matchMapel = filterMapel ? log.mataPelajaran === filterMapel : true;
 
         return matchBulan && matchKelas && matchTingkat && matchJurusan && matchMapel;

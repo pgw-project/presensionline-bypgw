@@ -371,7 +371,7 @@ export default function SiswaSection({
   };
 
   const studentLogs = (absensi || []).filter(
-    (log) => log.nis.trim().toLowerCase() === currentUser.username.trim().toLowerCase()
+    (log) => log && (log.nis || '').trim().toLowerCase() === (currentUser.username || '').trim().toLowerCase()
   );
 
   // PDF generator for Laporan Harian
@@ -971,7 +971,7 @@ export default function SiswaSection({
           {/* RIWAYAT PRESENSI MANDIRI SISWA */}
           {(() => {
             const myLogs = (absensi || []).filter(
-              (log) => log.nis.trim().toLowerCase() === currentUser.username.trim().toLowerCase() && isDashboardLogVisible(log.timestamp, currentTime)
+              (log) => log && (log.nis || '').trim().toLowerCase() === (currentUser.username || '').trim().toLowerCase() && isDashboardLogVisible(log.timestamp, currentTime)
             );
             const sortedLogs = [...myLogs].sort(
               (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()

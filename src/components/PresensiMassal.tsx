@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Users, Save, Search, Filter, Calendar, Clock, BookOpen,
-  Check, RefreshCw, Sparkles, UserCheck, UserX, Info
+  Check, RefreshCw, Sparkles, UserCheck, UserX, Info, QrCode, Zap
 } from 'lucide-react';
 import { Siswa, Kelas, AbsenLog, CurrentUser, AppState, Guru } from '../types';
 import { dbSaveAbsen } from '../lib/firebaseSync';
@@ -36,7 +36,7 @@ interface PresensiMassalProps {
   onSaveMassal: (newLogs: AbsenLog[]) => void;
 }
 
-export type StatusType = 'Hadir (Manual)' | 'Sakit' | 'Izin' | 'Bolos' | 'Alfa';
+export type StatusType = 'Hadir (QR)' | 'Hadir (Manual)' | 'Sakit' | 'Izin' | 'Bolos' | 'Alfa';
 
 export default function PresensiMassal({
   appState,
@@ -98,8 +98,7 @@ export default function PresensiMassal({
       const guruNip = currentGuruObj.nip;
 
       appState.kelas.forEach(k => {
-        const isMatch = (k.guruMapel && (isTeacherMatch(k.guruMapel, guruName) || k.guruMapel === guruNip)) ||
-                        (k.waliKelas && (isTeacherMatch(k.waliKelas, guruName) || k.waliKelas === guruNip));
+        const isMatch = k.guruMapel && (isTeacherMatch(k.guruMapel, guruName) || k.guruMapel === guruNip);
         if (isMatch && k.mapel && k.mapel.trim()) {
           setM.add(k.mapel.trim());
         }
@@ -132,16 +131,16 @@ export default function PresensiMassal({
     // Fallback ONLY when no teacher profile or no specific mapel is assigned at all
     if (allowedGuruMapels && allowedGuruMapels.length > 0) {
       allowedGuruMapels.forEach(m => { if (m && m.trim()) setM.add(m.trim()); });
-    } else if (appState.mataPelajaran && appState.mataPelajaran.length > 0) {
-      appState.mataPelajaran.forEach(m => {
-        if (m && m.nama && m.nama.trim()) setM.add(m.nama.trim());
+    } else if (appState.kelas && appState.kelas.length > 0) {
+      appState.kelas.forEach(k => {
+        if (k && k.mapel && k.mapel.trim()) setM.add(k.mapel.trim());
       });
     } else {
       ['Matematika', 'Bahasa Indonesia', 'Bahasa Inggris', 'IPA', 'IPS', 'Pendidikan Agama', 'PPKn', 'Informatika'].forEach(m => setM.add(m));
     }
 
     return Array.from(setM).sort((a, b) => a.localeCompare(b, 'id'));
-  }, [allowedGuruMapels, currentGuruObj, isGuruNonAdmin, appState.kelas, appState.mataPelajaran]);
+  }, [allowedGuruMapels, currentGuruObj, isGuruNonAdmin, appState.kelas]);
 
   // Set default selectedMapel when options are available or when selectedMapel is invalid
   useEffect(() => {
@@ -187,7 +186,9 @@ export default function PresensiMassal({
         }
 
         if (filterJurusan) {
-          if (!sKelas.includes(filterJurusan.toUpperCase())) return false;
+          const fj = filterJurusan.toUpperCase();
+          const sJ = (s.jurusan || '').toUpperCase();
+          if (!sKelas.includes(fj) && !sJ.includes(fj)) return false;
         }
 
         return true;
@@ -206,6 +207,7 @@ export default function PresensiMassal({
 
   // Attendance status map: NIS -> StatusType
   const [statusMap, setStatusMap] = useState<Record<string, StatusType>>({});
+  const prevQrLogIdsRef = useRef<Set<string>>(new Set());
 
   // Sync status map whenever student list, date, selectedMapel, or jamKe changes
   useEffect(() => {
@@ -214,7 +216,9 @@ export default function PresensiMassal({
       return;
     }
 
+    const currentQrSet = new Set<string>();
     const initialMap: Record<string, StatusType> = {};
+
     classStudents.forEach(siswa => {
       const existingLog = appState.absensi.find(log => 
         log.nis === siswa.nis &&
@@ -225,16 +229,33 @@ export default function PresensiMassal({
 
       if (existingLog) {
         let st: StatusType = 'Hadir (Manual)';
-        if (existingLog.status.startsWith('Hadir')) st = 'Hadir (Manual)';
-        else if (existingLog.status === 'Sakit') st = 'Sakit';
+        if (existingLog.status === 'Hadir (QR)') {
+          st = 'Hadir (QR)';
+          currentQrSet.add(existingLog.id);
+        } else if (existingLog.status.startsWith('Hadir')) {
+          st = 'Hadir (Manual)';
+        } else if (existingLog.status === 'Sakit') st = 'Sakit';
         else if (existingLog.status === 'Izin') st = 'Izin';
         else if (existingLog.status === 'Bolos') st = 'Bolos';
         else if (existingLog.status === 'Alfa') st = 'Alfa';
         initialMap[siswa.nis] = st;
       } else {
-        initialMap[siswa.nis] = 'Hadir (Manual)';
+        initialMap[siswa.nis] = 'Alfa';
       }
     });
+
+    // Notify teacher if a new QR scan was synced live while viewing
+    if (prevQrLogIdsRef.current.size > 0) {
+      currentQrSet.forEach(id => {
+        if (!prevQrLogIdsRef.current.has(id)) {
+          const log = appState.absensi.find(l => l.id === id);
+          if (log) {
+            triggerToast(`⚡ Live Barcode Sync: ${log.nama} (${log.kelas}) tersinkron via scan QR!`, 'success');
+          }
+        }
+      });
+    }
+    prevQrLogIdsRef.current = currentQrSet;
 
     setStatusMap(initialMap);
   }, [classStudents, selectedDate, selectedJamKe, selectedMapel, appState.absensi]);
@@ -259,16 +280,27 @@ export default function PresensiMassal({
 
   // Live Summary Counts
   const summaryCounts = useMemo(() => {
-    let hadir = 0, sakit = 0, izin = 0, bolos = 0, alfa = 0;
+    let hadirQr = 0, hadirManual = 0, sakit = 0, izin = 0, bolos = 0, alfa = 0;
     classStudents.forEach(s => {
       const st = statusMap[s.nis];
-      if (!st || st.startsWith('Hadir')) hadir++;
+      if (st === 'Hadir (QR)') hadirQr++;
+      else if (st === 'Hadir (Manual)' || (st && st.startsWith('Hadir'))) hadirManual++;
       else if (st === 'Sakit') sakit++;
       else if (st === 'Izin') izin++;
       else if (st === 'Bolos') bolos++;
       else if (st === 'Alfa') alfa++;
+      else alfa++;
     });
-    return { hadir, sakit, izin, bolos, alfa, total: classStudents.length };
+    return { 
+      hadirQr, 
+      hadirManual, 
+      totalHadir: hadirQr + hadirManual, 
+      sakit, 
+      izin, 
+      bolos, 
+      alfa, 
+      total: classStudents.length 
+    };
   }, [classStudents, statusMap]);
 
   // Save Mass Attendance
@@ -310,7 +342,7 @@ export default function PresensiMassal({
           }
         }
 
-        const targetStatus = statusMap[student.nis] || 'Hadir (Manual)';
+        const targetStatus = statusMap[student.nis] || 'Alfa';
 
         const existingLog = appState.absensi.find(log => 
           log.nis === student.nis &&
@@ -321,7 +353,7 @@ export default function PresensiMassal({
 
         const newLog: AbsenLog = {
           id: existingLog ? existingLog.id : `log_${Date.now()}_${student.nis}_${Math.random().toString(36).substr(2, 4)}`,
-          timestamp: dObj.toISOString(),
+          timestamp: existingLog ? existingLog.timestamp : dObj.toISOString(),
           tanggal: selectedDate,
           bulan: monthStr,
           nis: student.nis,
@@ -365,7 +397,7 @@ export default function PresensiMassal({
               <h3 className="text-lg font-black text-slate-900 tracking-tight">Presensi Massal Per Kelas</h3>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed pl-1">
-              Pilih kelas, jurusan, jam keberapa, dan tanggal. Daftar siswa akan langsung terlihat dan terurut abjad untuk dicentang kehadirannya.
+              Pilih kelas, jurusan, jam keberapa, dan tanggal. Data scan barcode siswa otomatis tersinkronisasi secara real-time.
             </p>
           </div>
 
@@ -391,6 +423,27 @@ export default function PresensiMassal({
               </>
             )}
           </button>
+        </div>
+
+        {/* REALTIME QR BARCODE SYNC BANNER */}
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50/60 border border-emerald-200/80 rounded-2xl p-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-700 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Zap className="w-4 h-4 animate-pulse" />
+            </div>
+            <div>
+              <span className="font-extrabold text-slate-900 block text-xs">Integrasi Presensi Barcode Real-Time</span>
+              <span className="text-[11px] text-slate-500">
+                Siswa yang sudah melakukan scan barcode QR akan otomatis bertanda <b className="text-emerald-700">⚡ Hadir (QR)</b> tanpa perlu absen ulang.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <span className="bg-emerald-600 text-white font-extrabold text-[11px] px-3 py-1 rounded-xl shadow-xs flex items-center gap-1.5">
+              <QrCode className="w-3.5 h-3.5" />
+              <span>{summaryCounts.hadirQr} Siswa Tersinkron QR</span>
+            </span>
+          </div>
         </div>
 
         {/* CONTROLS FILTER GRID: Tingkat, Jurusan, Kelas, Jam Ke, Tanggal */}
@@ -485,7 +538,7 @@ export default function PresensiMassal({
           </div>
         </div>
 
-        {/* SEARCH & SEARCH INSIDE LIST */}
+        {/* SEARCH & QUICK MASS ACTIONS */}
         <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-extrabold text-slate-600 uppercase tracking-wider flex items-center gap-1">
@@ -547,14 +600,20 @@ export default function PresensiMassal({
       </div>
 
       {/* SUMMARY BADGES */}
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-7 gap-2">
         <div className="bg-white border border-slate-100 rounded-2xl p-3 shadow-xs text-center">
           <span className="block text-[10px] font-bold text-slate-400 uppercase">Total Murid</span>
           <span className="text-lg font-black text-slate-800">{summaryCounts.total}</span>
         </div>
+        <div className="bg-emerald-500/10 border border-emerald-200 rounded-2xl p-3 shadow-xs text-center">
+          <span className="block text-[10px] font-extrabold text-emerald-800 uppercase flex items-center justify-center gap-1">
+            <QrCode className="w-3 h-3 text-emerald-600" /> Hadir (QR)
+          </span>
+          <span className="text-lg font-black text-emerald-700">{summaryCounts.hadirQr}</span>
+        </div>
         <div className="bg-emerald-50/80 border border-emerald-100 rounded-2xl p-3 shadow-xs text-center">
-          <span className="block text-[10px] font-bold text-emerald-700 uppercase">Hadir</span>
-          <span className="text-lg font-black text-emerald-700">{summaryCounts.hadir}</span>
+          <span className="block text-[10px] font-bold text-emerald-700 uppercase">Hadir (Manual)</span>
+          <span className="text-lg font-black text-emerald-700">{summaryCounts.hadirManual}</span>
         </div>
         <div className="bg-rose-50/80 border border-rose-100 rounded-2xl p-3 shadow-xs text-center">
           <span className="block text-[10px] font-bold text-rose-700 uppercase">Absen (Alfa)</span>
@@ -586,14 +645,14 @@ export default function PresensiMassal({
                 <th className="py-3.5 px-3 text-center w-24">Kelas</th>
                 
                 {/* HADIR COLUMN */}
-                <th className="py-2.5 px-2 text-center w-24 bg-emerald-50/80 text-emerald-800 border-x border-slate-200/80">
+                <th className="py-2.5 px-2 text-center w-28 bg-emerald-50/80 text-emerald-800 border-x border-slate-200/80">
                   <div className="flex flex-col items-center gap-0.5">
                     <span className="font-extrabold text-[11px]">Hadir</span>
                     <button
                       type="button"
                       onClick={() => handleSetAllStatus('Hadir (Manual)')}
                       className="text-[9px] bg-emerald-600 text-white px-2 py-0.5 rounded-md hover:bg-emerald-700 cursor-pointer font-bold shadow-xs"
-                      title="Set Semua Siswa Hadir"
+                      title="Set Semua Siswa Hadir Manual"
                     >
                       Set Semua
                     </button>
@@ -673,22 +732,43 @@ export default function PresensiMassal({
                 </tr>
               ) : (
                 filteredStudents.map((siswa, idx) => {
-                  const currentStatus = statusMap[siswa.nis] || 'Hadir (Manual)';
+                  const currentStatus = statusMap[siswa.nis] || 'Alfa';
+
+                  const logForStudent = appState.absensi.find(log => 
+                    log.nis === siswa.nis &&
+                    log.tanggal === selectedDate &&
+                    (log.jamKe || '1') === selectedJamKe &&
+                    (!selectedMapel || !log.mataPelajaran || (log.mataPelajaran || '').trim().toLowerCase() === selectedMapel.trim().toLowerCase())
+                  );
+
+                  const scanTimeStr = logForStudent?.timestamp 
+                    ? new Date(logForStudent.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) 
+                    : null;
 
                   return (
                     <tr key={siswa.nis} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-xs">{idx + 1}</td>
                       <td className="py-2.5 px-3 font-mono font-medium text-slate-500 text-xs">{siswa.nis}</td>
                       <td className="py-2.5 px-3 font-bold text-slate-850">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-500 shrink-0 text-xs">
-                            {siswa.foto ? (
-                              <img src={siswa.foto} alt="Foto" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                            ) : (
-                              siswa.nama.charAt(0)
-                            )}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-500 shrink-0 text-xs">
+                              {siswa.foto ? (
+                                <img src={siswa.foto} alt="Foto" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                              ) : (
+                                siswa.nama.charAt(0)
+                              )}
+                            </div>
+                            <span className="text-slate-900 font-bold text-xs">{siswa.nama}</span>
                           </div>
-                          <span className="text-slate-900 font-bold text-xs">{siswa.nama}</span>
+
+                          {/* Distinct Barcode Scan Badge */}
+                          {currentStatus === 'Hadir (QR)' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300/80 shadow-2xs">
+                              <QrCode className="w-3 h-3 text-emerald-600 animate-pulse" />
+                              <span>Scan Barcode {scanTimeStr ? `(${scanTimeStr})` : ''}</span>
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-center font-bold text-xs text-slate-600 uppercase">
@@ -697,7 +777,7 @@ export default function PresensiMassal({
 
                       {/* HADIR CHECK CELL */}
                       <td 
-                        onClick={() => handleStudentStatusChange(siswa.nis, 'Hadir (Manual)')}
+                        onClick={() => handleStudentStatusChange(siswa.nis, currentStatus === 'Hadir (QR)' ? 'Hadir (QR)' : 'Hadir (Manual)')}
                         className={`py-2 px-2 text-center border-x border-slate-100 cursor-pointer transition-all ${
                           currentStatus.startsWith('Hadir') ? 'bg-emerald-500/10' : 'hover:bg-emerald-50/40'
                         }`}
@@ -705,13 +785,29 @@ export default function PresensiMassal({
                         <button
                           type="button"
                           className={`w-full py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                            currentStatus.startsWith('Hadir')
+                            currentStatus === 'Hadir (QR)'
+                              ? 'bg-emerald-700 text-white shadow-sm ring-2 ring-emerald-600/40 font-bold'
+                              : currentStatus === 'Hadir (Manual)'
                               ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-600/30 font-bold'
                               : 'bg-white text-slate-300 border border-slate-200 hover:border-emerald-400 hover:text-emerald-600'
                           }`}
                         >
-                          {currentStatus.startsWith('Hadir') ? <Check className="w-4 h-4 stroke-[3]" /> : <span className="w-2 h-2 rounded-full bg-slate-200" />}
-                          <span className="text-[11px]">Hadir</span>
+                          {currentStatus === 'Hadir (QR)' ? (
+                            <>
+                              <QrCode className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span className="text-[11px]">Hadir (QR)</span>
+                            </>
+                          ) : currentStatus === 'Hadir (Manual)' ? (
+                            <>
+                              <Check className="w-4 h-4 stroke-[3]" />
+                              <span className="text-[11px]">Hadir</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="w-2 h-2 rounded-full bg-slate-200" />
+                              <span className="text-[11px]">Hadir</span>
+                            </>
+                          )}
                         </button>
                       </td>
 
@@ -808,7 +904,7 @@ export default function PresensiMassal({
             <div className="text-xs text-slate-500 flex items-center gap-2">
               <Info className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>
-                Menampilkan <b>{filteredStudents.length}</b> murid (Terurut Abjad A-Z).
+                Menampilkan <b>{filteredStudents.length}</b> murid ({summaryCounts.hadirQr} diantaranya telah scan QR Code).
               </span>
             </div>
             <button

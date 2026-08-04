@@ -130,6 +130,7 @@ export const getWaliKelasForClass = (
   k: { namaKelas: string; kelas?: string; jurusan?: string },
   guruList: { nama: string; jabatan?: string }[]
 ): string => {
+  if (!k || !guruList) return '';
   const found = guruList.find(g => isTeacherWaliOfClass(g, k));
   return found ? found.nama : '';
 };
@@ -138,8 +139,8 @@ export const checkGuruAttendancePermission = (
   guru: CurrentUser | null,
   guruDetail: Guru | undefined,
   student: Siswa,
-  subjectName: string,
-  kelasList: Kelas[]
+  subjectName?: string,
+  kelasList?: Kelas[]
 ): { isAuthorized: boolean; reason?: string } => {
   if (!guru) return { isAuthorized: false, reason: 'Pengguna tidak login.' };
   if (guru.username === 'admin') {
@@ -150,63 +151,67 @@ export const checkGuruAttendancePermission = (
     return { isAuthorized: false, reason: 'Detail data guru tidak ditemukan.' };
   }
 
-  const normalizedStudentClass = normalizeClassName(student.kelas);
+  const safeSubjectName = (subjectName || '').trim().toLowerCase();
+  const safeStudentClass = student?.kelas || '';
+  const normalizedStudentClass = normalizeClassName(safeStudentClass);
 
   // 1. Is the guru the Wali Kelas for this student's class group?
-  const isWali = isTeacherWaliOfClass(guruDetail, { namaKelas: student.kelas });
+  const isWali = isTeacherWaliOfClass(guruDetail, { namaKelas: safeStudentClass });
   if (isWali) {
     return { isAuthorized: true };
   }
 
   // 2. Is the guru a Guru Mapel for this class group and this subject?
-  const matchMapelClass = kelasList.find(k => {
+  const safeKelasList = kelasList || [];
+  const matchMapelClass = safeKelasList.find(k => {
+    if (!k || !k.namaKelas) return false;
     const normK = normalizeClassName(k.namaKelas);
-    const matchesClassName = (normalizedStudentClass === normK || normalizedStudentClass.includes(normK) || normK.includes(normalizedStudentClass));
+    const matchesClassName = normK && (normalizedStudentClass === normK || normalizedStudentClass.includes(normK) || normK.includes(normalizedStudentClass));
     if (!matchesClassName) return false;
 
     const matchesTeacherName = cleanCompareTeacher(k.guruMapel || '', guruDetail.nama) || k.guruMapel === guruDetail.nip || k.guruMapel === guru.username;
-    const matchesSubject = (k.mapel || '').trim().toLowerCase() === subjectName.trim().toLowerCase();
+    const matchesSubject = (k.mapel || '').trim().toLowerCase() === safeSubjectName;
     
-    return matchesTeacherName && matchesSubject;
+    return matchesTeacherName && (safeSubjectName ? matchesSubject : true);
   });
 
   if (matchMapelClass) {
     return { isAuthorized: true };
   }
 
-  // 3. Is the class in classesTaughtByGuru (kelasDiajar), and does the subject match the subject they are assigned to teach for that class?
+  // 3. Is the class in classesTaughtByGuru (kelasDiajar)?
   const classesTaughtByGuru = guruDetail.kelasDiajar || [];
   const matchesTaughtClass = classesTaughtByGuru.some(cName => {
+    if (!cName) return false;
     const normC = normalizeClassName(cName);
-    return normalizedStudentClass === normC || normalizedStudentClass.includes(normC) || normC.includes(normalizedStudentClass);
+    return normC && (normalizedStudentClass === normC || normalizedStudentClass.includes(normC) || normC.includes(normalizedStudentClass));
   });
 
   if (matchesTaughtClass) {
-    const matchTaughtMapel = kelasList.find(k => {
+    const matchTaughtMapel = safeKelasList.find(k => {
+      if (!k || !k.namaKelas) return false;
       const normK = normalizeClassName(k.namaKelas);
-      const matchesClassName = (normalizedStudentClass === normK || normalizedStudentClass.includes(normK) || normK.includes(normalizedStudentClass));
+      const matchesClassName = normK && (normalizedStudentClass === normK || normalizedStudentClass.includes(normK) || normK.includes(normalizedStudentClass));
       if (!matchesClassName) return false;
       const matchesTeacherName = cleanCompareTeacher(k.guruMapel || '', guruDetail.nama) || k.guruMapel === guruDetail.nip || k.guruMapel === guru.username;
       return matchesTeacherName;
     });
 
     if (matchTaughtMapel) {
-      const subjectMatches = (matchTaughtMapel.mapel || '').trim().toLowerCase() === subjectName.trim().toLowerCase();
-      if (!subjectMatches) {
+      const subjectMatches = (matchTaughtMapel.mapel || '').trim().toLowerCase() === safeSubjectName;
+      if (safeSubjectName && !subjectMatches) {
         return { 
           isAuthorized: false, 
-          reason: `Otoritas Terbatas! Anda ditugaskan mengajar di kelas ${student.kelas}, namun mata pelajaran aktif Anda ("${subjectName}") tidak cocok dengan mata pelajaran rujukan Anda ("${matchTaughtMapel.mapel}").` 
+          reason: `Mata pelajaran "${subjectName}" tidak sesuai dengan mata pelajaran pengampu kelas ini (${matchTaughtMapel.mapel}).` 
         };
       }
-      return { isAuthorized: true };
     }
-    
     return { isAuthorized: true };
   }
 
   return { 
     isAuthorized: false, 
-    reason: `Bukan Hak Otoritas! Anda tidak diizinkan mengisi presensi untuk siswa ${student.nama} (${student.kelas}) pada mata pelajaran "${subjectName}" karena tidak tercatat sebagai Wali Kelas atau Guru Mapel yang sesuai.` 
+    reason: `Anda tidak memiliki hak akses mengabsen kelas "${student.kelas || '-'}".` 
   };
 };
 
@@ -1036,8 +1041,10 @@ export default function App() {
 
     // Verification if Session is limited to a specific major (Jurusan)
     if (activeSessionJurusan) {
-      const cleanKelas = student.kelas.toUpperCase().trim();
-      if (!cleanKelas.includes(activeSessionJurusan.toUpperCase())) {
+      const normKelas = student.kelas.toUpperCase().trim().replace(/[\s_]+/g, '-');
+      const normJur = activeSessionJurusan.toUpperCase().trim().replace(/[\s_]+/g, '-');
+      const studentJur = (student.jurusan || '').toUpperCase().trim().replace(/[\s_]+/g, '-');
+      if (!normKelas.includes(normJur) && !studentJur.includes(normJur)) {
         triggerToast(`Absensi Gagal! Siswa ${student.nama} (${student.kelas}) bukan jurusan ${activeSessionJurusan} yang ditentukan pada Sesi Aktif Anda saat ini.`, 'warning');
         return;
       }
@@ -1555,8 +1562,10 @@ export default function App() {
 
     // Verification if Session is limited to a specific major (Jurusan)
     if (activeSessionJurusan) {
-      const cleanKelas = student.kelas.toUpperCase().trim();
-      if (!cleanKelas.includes(activeSessionJurusan.toUpperCase())) {
+      const normKelas = student.kelas.toUpperCase().trim().replace(/[\s_]+/g, '-');
+      const normJur = activeSessionJurusan.toUpperCase().trim().replace(/[\s_]+/g, '-');
+      const studentJur = (student.jurusan || '').toUpperCase().trim().replace(/[\s_]+/g, '-');
+      if (!normKelas.includes(normJur) && !studentJur.includes(normJur)) {
         triggerToast(`Absensi Gagal! Siswa ${student.nama} (${student.kelas}) bukan jurusan ${activeSessionJurusan} yang ditentukan pada Sesi Aktif Anda saat ini.`, 'warning');
         return;
       }
@@ -1903,23 +1912,25 @@ export default function App() {
 
   const managedClasses = Array.from(new Set([
     ...appState.kelas.filter(k => {
+      if (!k || !k.namaKelas) return false;
       const isWali = currentGuruObj ? isTeacherWaliOfClass(currentGuruObj, k) : false;
-      const isMapel = cleanCompareTeacher(k.guruMapel || '', appState.currentUser?.nama || '') || k.guruMapel === appState.currentUser?.username;
+      const isMapel = cleanCompareTeacher(k.guruMapel || '', appState.currentUser?.nama || '') || (k.guruMapel && k.guruMapel === appState.currentUser?.username);
       return isWali || isMapel;
     }).map(k => k.namaKelas),
     ...classesTaughtByGuru
-  ]));
+  ])).filter((c): c is string => typeof c === 'string' && c.trim().length > 0);
 
   const baseManagedClasses = managedClasses.map(c => getBaseClassGroup(c, appState.kelas));
-  const normalizedManagedClasses = baseManagedClasses.map(c => normalizeClassName(c));
+  const normalizedManagedClasses = baseManagedClasses.map(c => normalizeClassName(c)).filter(c => c.length > 0);
 
   // Restricted lists for components & dropdowns (supports flexible subject teacher viewing)
   const restrictedSiswaList = useMemo(() => {
     const rawList = isGuruNonAdmin
       ? appState.siswa.filter(s => {
+          if (!s || !s.kelas) return false;
           const normalizedStudentClass = normalizeClassName(s.kelas);
-          // Direct matching or partial matching for flexible rombel structures (e.g. "XII RPL 1" matches "XII-RPL-1")
-          return normalizedManagedClasses.some(mc => normalizedStudentClass === mc || normalizedStudentClass.includes(mc) || mc.includes(normalizedStudentClass));
+          if (!normalizedStudentClass) return false;
+          return normalizedManagedClasses.some(mc => mc && (normalizedStudentClass === mc || normalizedStudentClass.includes(mc) || mc.includes(normalizedStudentClass)));
         })
       : appState.siswa;
     return [...rawList].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
@@ -1927,96 +1938,287 @@ export default function App() {
 
   const restrictedAbsensiList = isGuruNonAdmin
     ? appState.absensi.filter(l => {
+        if (!l || !l.kelas) return false;
         const isMyRecord = l.guruNip === appState.currentUser?.username;
         const normalizedLogClass = normalizeClassName(l.kelas);
-        const matchesClass = normalizedManagedClasses.some(mc => normalizedLogClass === mc || normalizedLogClass.includes(mc) || mc.includes(normalizedLogClass));
+        const matchesClass = normalizedLogClass && normalizedManagedClasses.some(mc => mc && (normalizedLogClass === mc || normalizedLogClass.includes(mc) || mc.includes(normalizedLogClass)));
         const isWaliOfThisClass = currentGuruObj ? isTeacherWaliOfClass(currentGuruObj, { namaKelas: l.kelas }) : false;
-        return (isMyRecord || isWaliOfThisClass) && matchesClass;
+        return (isMyRecord || isWaliOfThisClass) && (matchesClass || isMyRecord);
       })
     : appState.absensi;
 
   const restrictedKelasList = isGuruNonAdmin
     ? appState.kelas.filter(k => {
+        if (!k || !k.namaKelas) return false;
         const normalizedClassNameVal = normalizeClassName(k.namaKelas);
-        return normalizedManagedClasses.some(mc => normalizedClassNameVal === mc || normalizedClassNameVal.includes(mc) || mc.includes(normalizedClassNameVal));
+        return normalizedClassNameVal && normalizedManagedClasses.some(mc => mc && (normalizedClassNameVal === mc || normalizedClassNameVal.includes(mc) || mc.includes(normalizedClassNameVal)));
       })
     : appState.kelas;
 
   // Allowed mapels, tingkats, jurusans strictly corresponding to teacher's managed/taught classes:
+  // 1. Mapels directly taught by Non-Admin teacher
+  const teacherDirectMapels = useMemo(() => {
+    if (!isGuruNonAdmin) return [];
+    const setM = new Set<string>();
+
+    // Explicit mataPelajaran on teacher profile
+    if (currentGuruObj?.mataPelajaran) {
+      currentGuruObj.mataPelajaran.split(/[,;\/\n]/).forEach(s => {
+        const clean = s.trim();
+        if (clean) setM.add(clean);
+      });
+    }
+
+    // Mapels from appState.kelas where teacher is explicitly guruMapel
+    appState.kelas.forEach(k => {
+      if (!k.mapel || !k.mapel.trim()) return;
+      const isGuruMapel = 
+        cleanCompareTeacher(k.guruMapel || '', appState.currentUser?.nama || '') || 
+        (k.guruMapel && k.guruMapel === appState.currentUser?.username) ||
+        (currentGuruObj?.nip && k.guruMapel === currentGuruObj.nip);
+      if (isGuruMapel) {
+        setM.add(k.mapel.trim());
+      }
+    });
+
+    // Extract mapel from kelasDiajar if formatted like "XII RPL 1 - Bahasa Indonesia"
+    (currentGuruObj?.kelasDiajar || []).forEach(kd => {
+      if (kd && kd.includes(' - ')) {
+        const parts = kd.split(' - ');
+        const lastPart = parts[parts.length - 1].trim();
+        if (lastPart && !lastPart.match(/^(X|XI|XII|RPL|TKJ|MM|AKL|OTKP|BDP|TB|TP|1|2|3|4|5)/i)) {
+          setM.add(lastPart);
+        }
+      }
+    });
+
+    return Array.from(setM).filter(Boolean);
+  }, [isGuruNonAdmin, currentGuruObj, appState.kelas, appState.currentUser]);
+
   const allowedGuruMapels = isGuruNonAdmin
-    ? Array.from(new Set(
-        [
-          ...(currentGuruObj?.mataPelajaran ? currentGuruObj.mataPelajaran.split(/[,;/]/).map(s => s.trim()) : []),
-          ...restrictedKelasList.map(k => k.mapel),
-          ...appState.kelas.filter(k => 
-            cleanCompareTeacher(k.guruMapel || '', appState.currentUser?.nama || '') || 
-            k.guruMapel === appState.currentUser?.username ||
-            cleanCompareTeacher(k.waliKelas || '', appState.currentUser?.nama || '') ||
-            k.waliKelas === appState.currentUser?.username
-          ).map(k => k.mapel)
-        ].filter((m): m is string => !!m && m.trim().length > 0)
-      ))
+    ? (teacherDirectMapels.length > 0 
+        ? teacherDirectMapels.sort() 
+        : Array.from(new Set(
+            restrictedKelasList.map(k => k.mapel).filter((m): m is string => !!m && m.trim().length > 0)
+          )).sort()
+      )
     : Array.from(new Set<string>([
         ...appState.kelas.map(k => k.mapel).filter(Boolean),
         ...MAPEL_OPTIONS
       ])).sort();
 
-  const allowedGuruTingkat = isGuruNonAdmin
-    ? Array.from(new Set<string>(
-        restrictedKelasList
-          .map(k => {
-            const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
-            return (k.kelas || name.split('-')[0] || name.split(' ')[0] || '').trim().toUpperCase();
-          })
-          .filter(Boolean)
-      )).sort((a: string, b: string) => {
-        const standard = ['X', 'XI', 'XII'];
-        const idxA = standard.indexOf(a);
-        const idxB = standard.indexOf(b);
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-        if (idxA !== -1) return -1;
-        if (idxB !== -1) return 1;
-        return a.localeCompare(b);
-      })
-    : Array.from(new Set<string>([
-        ...appState.kelas.map(k => {
-          const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
-          return (k.kelas || name.split('-')[0] || name.split(' ')[0] || '').trim().toUpperCase();
-        }),
-        ...appState.siswa.map(s => {
-          const sk = typeof s.kelas === 'string' ? s.kelas : '';
-          return (sk.split('-')[0] || sk.split(' ')[0] || '').trim().toUpperCase();
-        })
-      ])).filter(t => t.length > 0 && t !== 'CUSTOM' && t !== 'ADMIN' && t !== 'GURU').sort((a: string, b: string) => {
-        const standard = ['X', 'XI', 'XII'];
-        const idxA = standard.indexOf(a);
-        const idxB = standard.indexOf(b);
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-        if (idxA !== -1) return -1;
-        if (idxB !== -1) return 1;
-        return a.localeCompare(b);
-      });
+  // Classes matching activeMataPelajaran for Non-Admin teacher
+  const classesForActiveMapel = useMemo(() => {
+    if (!isGuruNonAdmin) return restrictedKelasList;
+    if (!activeMataPelajaran) return restrictedKelasList;
+    
+    const activeMapelLower = activeMataPelajaran.trim().toLowerCase();
 
-  const allowedGuruJurusan = isGuruNonAdmin
-    ? Array.from(new Set<string>(
-        restrictedKelasList
-          .map(k => {
-            const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
-            return (k.jurusan || name.split('-').slice(1).join('-') || '').trim().toUpperCase();
-          })
-          .filter(Boolean)
-      )).sort()
-    : Array.from(new Set<string>([
-        ...appState.kelas.map(k => {
-          const name = typeof k.namaKelas === 'string' ? k.namaKelas : '';
-          return (k.jurusan || name.split('-').slice(1).join('-') || '').trim().toUpperCase();
-        }),
-        ...appState.siswa.map(s => {
-          const sk = typeof s.kelas === 'string' ? s.kelas : '';
-          const parts = sk.split('-');
-          return (parts.length > 1 ? parts.slice(1).join('-') : '').trim().toUpperCase();
-        })
-      ])).filter(j => j.length > 0 && j !== 'CUSTOM' && j !== 'ADMIN' && j !== 'GURU').sort();
+    // 1. Find classes in appState.kelas that match activeMataPelajaran
+    const matchedFromKelas = appState.kelas.filter(k => {
+      if (!k || !k.namaKelas) return false;
+      const kMapel = (k.mapel || '').trim().toLowerCase();
+      
+      // Must be a class associated with this teacher
+      const isMyClass = restrictedKelasList.some(rk => normalizeClassName(rk.namaKelas) === normalizeClassName(k.namaKelas));
+      if (!isMyClass) return false;
+
+      // Check explicit mapel match
+      if (kMapel === activeMapelLower) return true;
+
+      // Check explicit kelasDiajar match like "X RPL 1 - Matematika"
+      const normC = normalizeClassName(k.namaKelas);
+      const kdMatch = (currentGuruObj?.kelasDiajar || []).some(kd => {
+        if (kd.includes(' - ')) {
+          const parts = kd.split(' - ');
+          const cName = parts[0].trim();
+          const sName = parts[parts.length - 1].trim().toLowerCase();
+          return normalizeClassName(cName) === normC && sName === activeMapelLower;
+        }
+        return false;
+      });
+      if (kdMatch) return true;
+
+      // If teacher only teaches 1 subject and kMapel is empty or matches
+      if (allowedGuruMapels.length === 1 && (!kMapel || kMapel === activeMapelLower)) {
+        return true;
+      }
+
+      return false;
+    });
+
+    // 2. Also collect matched from currentGuruObj.kelasDiajar directly
+    const matchedClassObjs: Kelas[] = [...matchedFromKelas];
+    const existingNorms = new Set(matchedClassObjs.map(k => normalizeClassName(k.namaKelas)));
+
+    (currentGuruObj?.kelasDiajar || []).forEach(kd => {
+      if (!kd) return;
+      let cName = kd;
+      let sName = '';
+      if (kd.includes(' - ')) {
+        const parts = kd.split(' - ');
+        cName = parts[0].trim();
+        sName = parts[parts.length - 1].trim().toLowerCase();
+      }
+
+      if (sName === activeMapelLower || (!sName && allowedGuruMapels.length === 1)) {
+        const normC = normalizeClassName(cName);
+        if (normC && !existingNorms.has(normC)) {
+          existingNorms.add(normC);
+          const foundInMaster = appState.kelas.find(k => normalizeClassName(k.namaKelas) === normC);
+          if (foundInMaster) {
+            matchedClassObjs.push(foundInMaster);
+          } else {
+            const clean = cName.split(' - ')[0].trim();
+            const parts = clean.split(/[-_ ]+/).filter(Boolean);
+            matchedClassObjs.push({
+              namaKelas: cName,
+              kelas: parts[0] || '',
+              jurusan: parts.length > 1 ? parts[1] : '',
+              waliKelas: ''
+            });
+          }
+        }
+      }
+    });
+
+    if (matchedClassObjs.length > 0) return matchedClassObjs;
+
+    // Fallback only if no specific mapel-to-class match could be determined
+    return restrictedKelasList;
+  }, [isGuruNonAdmin, activeMataPelajaran, restrictedKelasList, appState.kelas, currentGuruObj, allowedGuruMapels]);
+
+  // Extract Tingkat Kelas (e.g. X, XI, XII)
+  const extractTingkatValue = (raw: string): string => {
+    if (!raw) return '';
+    const clean = raw.trim().toUpperCase();
+    const firstPart = clean.split(' - ')[0].trim();
+    const parts = firstPart.split(/[-_ ]+/).filter(Boolean);
+    if (parts.length === 0) return '';
+    
+    let p0 = parts[0];
+    if (p0 === '10') p0 = 'X';
+    if (p0 === '11') p0 = 'XI';
+    if (p0 === '12') p0 = 'XII';
+
+    if (['X', 'XI', 'XII'].includes(p0)) return p0;
+
+    if (p0 === 'KELAS' && parts.length > 1) {
+      let p1 = parts[1];
+      if (p1 === '10') p1 = 'X';
+      if (p1 === '11') p1 = 'XI';
+      if (p1 === '12') p1 = 'XII';
+      if (['X', 'XI', 'XII'].includes(p1)) return p1;
+    }
+
+    if (p0 && p0 !== 'CUSTOM' && p0 !== 'ADMIN' && p0 !== 'GURU' && !p0.match(/^\d+$/)) {
+      return p0;
+    }
+    return '';
+  };
+
+  // Extract clean Jurusan (e.g. RPL-1, TKJ-2, ATPH, MPLB-1, MPLB-2, TSM)
+  const extractJurusanValues = (rawClass: string, rawJurusan?: string): string[] => {
+    const found = new Set<string>();
+
+    if (rawClass && typeof rawClass === 'string') {
+      const clean = rawClass.trim().toUpperCase();
+      const firstPart = clean.split(' - ')[0].trim();
+      const parts = firstPart.split(/[-_ ]+/).filter(Boolean);
+
+      let startIndex = 0;
+      if (parts.length > 0) {
+        const p0 = parts[0];
+        if (['X', 'XI', 'XII', '10', '11', '12'].includes(p0)) {
+          startIndex = 1;
+        } else if (p0 === 'KELAS' && parts.length > 1) {
+          const p1 = parts[1];
+          if (['X', 'XI', 'XII', '10', '11', '12'].includes(p1)) {
+            startIndex = 2;
+          } else {
+            startIndex = 1;
+          }
+        }
+      }
+
+      const jurParts = parts.slice(startIndex);
+      if (jurParts.length > 0) {
+        const joined = jurParts.join('-');
+        if (joined && joined !== 'CUSTOM' && joined !== 'ADMIN' && joined !== 'GURU' && !joined.match(/^\d+$/)) {
+          found.add(joined);
+        }
+      }
+    }
+
+    if (rawJurusan && rawJurusan.trim()) {
+      const cleanJ = rawJurusan.trim().toUpperCase().replace(/\s+/g, '-');
+      if (cleanJ && cleanJ !== 'CUSTOM' && cleanJ !== 'ADMIN' && cleanJ !== 'GURU' && !cleanJ.match(/^\d+$/)) {
+        const existingSpecific = Array.from(found).some(f => f.startsWith(cleanJ + '-'));
+        if (!existingSpecific) {
+          found.add(cleanJ);
+        }
+      }
+    }
+
+    return Array.from(found);
+  };
+
+  // Allowed Tingkat (X, XI, XII) strictly corresponding to student data in Data Murid menu and teacher classes
+  const allowedGuruTingkat = useMemo(() => {
+    const setT = new Set<string>();
+    const siswaSource = isGuruNonAdmin ? restrictedSiswaList : appState.siswa;
+    const kelasSource = isGuruNonAdmin ? restrictedKelasList : appState.kelas;
+
+    siswaSource.forEach(s => {
+      const t = extractTingkatValue(s.kelas);
+      if (t) setT.add(t);
+    });
+
+    kelasSource.forEach(k => {
+      const t = extractTingkatValue(k.namaKelas || k.kelas || '');
+      if (t) setT.add(t);
+    });
+
+    if (isGuruNonAdmin && setT.size === 0 && currentGuruObj?.kelasDiajar) {
+      currentGuruObj.kelasDiajar.forEach(kd => {
+        const t = extractTingkatValue(kd);
+        if (t) setT.add(t);
+      });
+    }
+
+    return Array.from(setT).sort((a: string, b: string) => {
+      const standard = ['X', 'XI', 'XII'];
+      const idxA = standard.indexOf(a);
+      const idxB = standard.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [isGuruNonAdmin, restrictedSiswaList, restrictedKelasList, appState.siswa, appState.kelas, currentGuruObj]);
+
+  // Allowed Jurusan (RPL, TKJ, ATPH, MPLB, TSM, etc.) strictly corresponding to student data in Data Murid menu and teacher classes
+  const allowedGuruJurusan = useMemo(() => {
+    const setJ = new Set<string>();
+    const siswaSource = isGuruNonAdmin ? restrictedSiswaList : appState.siswa;
+    const kelasSource = isGuruNonAdmin ? restrictedKelasList : appState.kelas;
+
+    siswaSource.forEach(s => {
+      extractJurusanValues(s.kelas, s.jurusan).forEach(j => setJ.add(j));
+    });
+
+    kelasSource.forEach(k => {
+      extractJurusanValues(k.namaKelas, k.jurusan).forEach(j => setJ.add(j));
+    });
+
+    if (isGuruNonAdmin && setJ.size === 0 && currentGuruObj?.kelasDiajar) {
+      currentGuruObj.kelasDiajar.forEach(kd => {
+        extractJurusanValues(kd).forEach(j => setJ.add(j));
+      });
+    }
+
+    return Array.from(setJ).sort();
+  }, [isGuruNonAdmin, restrictedSiswaList, restrictedKelasList, appState.siswa, appState.kelas, currentGuruObj]);
 
   // Automatically adjust active states to comply with teacher's allowed values
   const currentUserUsername = appState.currentUser?.username || '';
@@ -4957,12 +5159,16 @@ export default function App() {
                           <tbody className="divide-y divide-slate-100 font-medium text-slate-650">
                             {restrictedAbsensiList
                               .filter(log => {
-                                const term = searchLogQuery.toLowerCase();
-                                const matchesSearch = log.nama.toLowerCase().includes(term) || log.nis.includes(term) || log.tanggal.includes(term) || log.status.toLowerCase().includes(term);
+                                if (!log) return false;
+                                const term = (searchLogQuery || '').toLowerCase();
+                                const matchesSearch = (log.nama || '').toLowerCase().includes(term) ||
+                                                      (log.nis || '').includes(term) ||
+                                                      (log.tanggal || '').includes(term) ||
+                                                      (log.status || '').toLowerCase().includes(term);
 
                                 let matchesTingkat = true;
                                 if (filterLogTingkat) {
-                                  const cleanKelas = log.kelas.trim().toUpperCase();
+                                  const cleanKelas = (log.kelas || '').trim().toUpperCase();
                                   const targetTingkat = filterLogTingkat.toUpperCase();
                                   matchesTingkat = cleanKelas === targetTingkat ||
                                                    cleanKelas.startsWith(targetTingkat + '-') ||
@@ -4970,7 +5176,7 @@ export default function App() {
                                 }
 
                                 const matchesJurusan = filterLogJurusan 
-                                  ? log.kelas.toUpperCase().includes(filterLogJurusan.toUpperCase()) 
+                                  ? (log.kelas || '').toUpperCase().includes(filterLogJurusan.toUpperCase()) 
                                   : true;
 
                                 const matchesMapel = filterLogMapel
@@ -5037,6 +5243,9 @@ export default function App() {
                     absensiList={restrictedAbsensiList}
                     kelasList={restrictedKelasList}
                     holidays={holidays}
+                    allowedGuruMapels={allowedGuruMapels}
+                    allowedGuruTingkat={allowedGuruTingkat}
+                    allowedGuruJurusan={allowedGuruJurusan}
                   />
                 )}
 
@@ -5047,6 +5256,9 @@ export default function App() {
                     absensiList={restrictedAbsensiList}
                     kelasList={restrictedKelasList}
                     holidays={holidays}
+                    allowedGuruMapels={allowedGuruMapels}
+                    allowedGuruTingkat={allowedGuruTingkat}
+                    allowedGuruJurusan={allowedGuruJurusan}
                   />
                 )}
 
